@@ -105,7 +105,7 @@ def procesar_y_guardar_licitaciones():
             if db is not None:
                 if db["licitaciones"].find_one({"id": codigo}) is None:
                     try:
-                        db["licitaciones"].insert_one(licitacion_mapeada)
+                        db["licitaciones"].insert_one(licitacion_mapeada.copy())
                         nuevas_relevantes.append(licitacion_mapeada)
                         print(f"✨ [Licitación] Nueva detectada y guardada: {codigo}")
                     except Exception as e:
@@ -204,7 +204,7 @@ def simular_scraping_compra_agil_urgente():
                     if db is not None:
                         if db["licitaciones"].find_one({"id": codigo_ca}) is None:
                             try:
-                                db["licitaciones"].insert_one(compra_mapeada)
+                                db["licitaciones"].insert_one(compra_mapeada.copy())
                                 alertas_urgentes.append(compra_mapeada)
                                 print(f"✨ [Compra Ágil] OC Detectada y Guardada: {codigo_ca}")
                             except Exception as e:

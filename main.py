@@ -139,3 +139,35 @@ def test_daily_report_now():
     """Igual que arriba, pero para el reporte diario de licitaciones."""
     nuevas = procesar_y_guardar_licitaciones()
     return {"licitaciones_nuevas": len(nuevas), "detalle": nuevas}
+
+
+@app.get("/cron/test-send-email-now")
+def test_send_email_now(destinatario: str = "soporte@induwork.cl", limite: int = 5):
+    """
+    Endpoint SOLO PARA PRUEBAS. No llama a la API de Mercado Público:
+    toma licitaciones que YA están guardadas en MongoDB (de corridas anteriores)
+    y fuerza un envío real de correo con ellas.
+
+    Sirve para aislar el problema: si esto envía el correo bien, el SMTP está
+    OK y el problema está en la detección/clasificación de datos nuevos.
+    Si esto falla, el problema está en las credenciales o config de mailer.py.
+    """
+    if db is None:
+        return {"status": "error", "detail": "Sin conexión a MongoDB"}
+
+    documentos = list(db["licitaciones"].find().sort("fecha_captura", -1).limit(limite))
+
+    if not documentos:
+        return {"status": "sin_datos", "detail": "No hay licitaciones guardadas en Mongo todavía. Corre /cron/test-daily-report-now primero."}
+
+    enviado = enviar_correo_oportunidades(
+        destinatario=destinatario,
+        asunto="🧪 PRUEBA MANUAL: Verificación de envío SMTP",
+        licitaciones=documentos
+    )
+
+    return {
+        "status": "enviado" if enviado else "fallo",
+        "cantidad": len(documentos),
+        "destinatario": destinatario
+    }
