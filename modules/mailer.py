@@ -1,21 +1,18 @@
 import os
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from dotenv import load_dotenv
+import requests
 
-load_dotenv()
+BREVO_API_KEY = os.getenv("BREVO_API_KEY")
+BREVO_API_URL = "https://api.brevo.com/v3/smtp/email"
 
-SMTP_SERVER = os.getenv("SMTP_SERVER")
-SMTP_PORT = int(os.getenv("SMTP_PORT", 465))
-EMAIL_USER = os.getenv("EMAIL_USER")
-EMAIL_PASS = os.getenv("EMAIL_PASS")
+# Remitente verificado en Brevo (Settings → Senders, Domains & Dedicated IPs)
+REMITENTE_EMAIL = os.getenv("EMAIL_USER", "soporte@induwork.cl")
+REMITENTE_NOMBRE = "Bot Mercado Público"
+
 
 def generar_tabla_html(licitaciones):
     """Genera una estructura de tabla HTML limpia para el contenido del correo."""
     filas = ""
     for l in licitaciones:
-        # Enlace simulado a Mercado Público usando su ID
         enlace = f"https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?id={l['id']}"
         if "CA-" in l["id"]:
             enlace = "https://buscador.mercadopublico.cl/compra-agil"
@@ -31,7 +28,7 @@ def generar_tabla_html(licitaciones):
             </td>
         </tr>
         """
-    
+
     html = f"""
     <table style="width: 100%; border-collapse: collapse; font-family: Arial, sans-serif;">
         <thead>
@@ -50,23 +47,26 @@ def generar_tabla_html(licitaciones):
     """
     return html
 
+
 def enviar_correo_oportunidades(destinatario, asunto, licitaciones, es_alerta_urgente=False):
-    """Se conecta al servidor SMTP seguro de Induwork y envía el reporte."""
+    """
+    Envía el reporte de oportunidades usando la API HTTPS de Brevo (puerto 443),
+    en vez de SMTP directo (puertos 25/465/587), porque Render bloquea esos
+    puertos salientes en el plan gratuito.
+    """
     if not licitaciones:
         print(f"ℹ️ No hay licitaciones para enviar a {destinatario}.")
         return False
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = asunto
-    msg["From"] = f"Bot Mercado Público <{EMAIL_USER}>"
-    msg["To"] = destinatario
+    if not BREVO_API_KEY:
+        print("❌ Error: No se ha configurado BREVO_API_KEY en las variables de entorno.")
+        return False
 
-    # Configuración del diseño del correo electrónico
     color_banner = "#d9534f" if es_alerta_urgente else "#1b365d"
     titulo_banner = "🚨 ALERTA URGENTE: COMPRA ÁGIL" if es_alerta_urgente else "📋 REPORTE DIARIO DE OPORTUNIDADES"
-    
+
     tabla_html = generar_tabla_html(licitaciones)
-    
+
     cuerpo_html = f"""
     <html>
         <body>
@@ -83,16 +83,30 @@ def enviar_correo_oportunidades(destinatario, asunto, licitaciones, es_alerta_ur
         </body>
     </html>
     """
-    
-    msg.attach(MIMEText(cuerpo_html, "html"))
+
+    payload = {
+        "sender": {"name": REMITENTE_NOMBRE, "email": REMITENTE_EMAIL},
+        "to": [{"email": destinatario}],
+        "subject": asunto,
+        "htmlContent": cuerpo_html
+    }
+
+    headers = {
+        "accept": "application/json",
+        "api-key": BREVO_API_KEY,
+        "content-type": "application/json"
+    }
 
     try:
-        # Conexión usando SSL nativo (Puerto 465)
-        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
-            server.login(EMAIL_USER, EMAIL_PASS)
-            server.sendmail(EMAIL_USER, destinatario, msg.as_string())
-        print(f"✅ Correo enviado exitosamente a {destinatario}")
-        return True
+        response = requests.post(BREVO_API_URL, json=payload, headers=headers, timeout=15)
+
+        if response.status_code in (200, 201):
+            print(f"✅ Correo enviado exitosamente a {destinatario} (Brevo messageId: {response.json().get('messageId')})")
+            return True
+        else:
+            print(f"❌ Error al enviar el correo a {destinatario}: {response.status_code} - {response.text}")
+            return False
+
     except Exception as e:
         print(f"❌ Error al enviar el correo a {destinatario}: {e}")
         return False
