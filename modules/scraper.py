@@ -21,7 +21,7 @@ def obtener_licitaciones_api_real():
         print("❌ Error: No se ha configurado CHILECOMPRA_TICKET en el archivo .env")
         return []
 
-    ahora = datetime.datetime.now()
+    ahora = datetime.datetime.now(CL_TZ)
     hoy_str = ahora.strftime("%d%m%Y")  # Formato estricto DDMMAAAA (ej: 09072026)
 
     url = f"https://api.mercadopublico.cl/servicios/v1/publico/licitaciones.json?fecha={hoy_str}&ticket={TICKET}"
