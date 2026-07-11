@@ -1,8 +1,11 @@
 import os
 import datetime
+from zoneinfo import ZoneInfo
 import requests
 from config.database import get_db
 from modules.filters import evaluar_licitacion
+
+CL_TZ = ZoneInfo("America/Santiago")
 
 # Conectar a la base de datos
 db = get_db()
