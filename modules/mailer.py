@@ -1,12 +1,12 @@
 import os
-import requests
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
-BREVO_API_KEY = os.getenv("BREVO_API_KEY")
-BREVO_API_URL = "https://api.brevo.com/v3/smtp/email"
-
-# Remitente verificado en Brevo (Settings → Senders, Domains & Dedicated IPs)
-REMITENTE_EMAIL = os.getenv("EMAIL_USER", "soporte@induwork.cl")
-REMITENTE_NOMBRE = "Bot Mercado Público"
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
+EMAIL_USER = os.getenv("EMAIL_USER")
+EMAIL_PASS = os.getenv("EMAIL_PASS")
 
 
 def generar_tabla_html(licitaciones):
@@ -50,17 +50,22 @@ def generar_tabla_html(licitaciones):
 
 def enviar_correo_oportunidades(destinatario, asunto, licitaciones, es_alerta_urgente=False):
     """
-    Envía el reporte de oportunidades usando la API HTTPS de Brevo (puerto 443),
-    en vez de SMTP directo (puertos 25/465/587), porque Render bloquea esos
-    puertos salientes en el plan gratuito.
+    Envía el reporte de oportunidades vía SMTP (Gmail u otro proveedor).
+    Pensado para correr desde GitHub Actions, donde no hay bloqueo de puertos SMTP
+    (a diferencia del plan gratis de Render).
     """
     if not licitaciones:
         print(f"ℹ️ No hay licitaciones para enviar a {destinatario}.")
         return False
 
-    if not BREVO_API_KEY:
-        print("❌ Error: No se ha configurado BREVO_API_KEY en las variables de entorno.")
+    if not EMAIL_USER or not EMAIL_PASS:
+        print("❌ Error: EMAIL_USER o EMAIL_PASS no están configurados.")
         return False
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = asunto
+    msg["From"] = f"Bot Mercado Público <{EMAIL_USER}>"
+    msg["To"] = destinatario
 
     color_banner = "#d9534f" if es_alerta_urgente else "#1b365d"
     titulo_banner = "🚨 ALERTA URGENTE: COMPRA ÁGIL" if es_alerta_urgente else "📋 REPORTE DIARIO DE OPORTUNIDADES"
@@ -78,35 +83,27 @@ def enviar_correo_oportunidades(destinatario, asunto, licitaciones, es_alerta_ur
                 <p>Hola equipo, el bot ha detectado las siguientes ofertas disponibles en Mercado Público:</p>
                 {tabla_html}
                 <br>
-                <p style="font-size: 12px; color: #777;">Este es un correo automático generado por su bot de adquisición hospedado en Render.</p>
+                <p style="font-size: 12px; color: #777;">Este es un correo automático generado por su bot de adquisición (GitHub Actions).</p>
             </div>
         </body>
     </html>
     """
 
-    payload = {
-        "sender": {"name": REMITENTE_NOMBRE, "email": REMITENTE_EMAIL},
-        "to": [{"email": destinatario}],
-        "subject": asunto,
-        "htmlContent": cuerpo_html
-    }
-
-    headers = {
-        "accept": "application/json",
-        "api-key": BREVO_API_KEY,
-        "content-type": "application/json"
-    }
+    msg.attach(MIMEText(cuerpo_html, "html"))
 
     try:
-        response = requests.post(BREVO_API_URL, json=payload, headers=headers, timeout=15)
-
-        if response.status_code in (200, 201):
-            print(f"✅ Correo enviado exitosamente a {destinatario} (Brevo messageId: {response.json().get('messageId')})")
-            return True
+        if SMTP_PORT == 465:
+            with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
+                server.login(EMAIL_USER, EMAIL_PASS)
+                server.sendmail(EMAIL_USER, destinatario, msg.as_string())
         else:
-            print(f"❌ Error al enviar el correo a {destinatario}: {response.status_code} - {response.text}")
-            return False
+            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+                server.starttls()
+                server.login(EMAIL_USER, EMAIL_PASS)
+                server.sendmail(EMAIL_USER, destinatario, msg.as_string())
 
+        print(f"✅ Correo enviado exitosamente a {destinatario}")
+        return True
     except Exception as e:
         print(f"❌ Error al enviar el correo a {destinatario}: {e}")
         return False
