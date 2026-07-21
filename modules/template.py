@@ -11,95 +11,68 @@ CL_TZ = ZoneInfo("America/Santiago")
 # ============================================================
 CATEGORY_CONFIG = {
     "induwork": {
-        "primary_color": "#E8720C",
-        "banner": "induwork.jpg",  
-        "titulo": "INDUWORK — OPORTUNIDADES TÁCTICAS",
+        "primary_color": "#E8720C",      # Naranjo
+        "banner": "induwork.jpg",
+        "titulo_general": "LICITACIONES",
         "empresa": "Induwork",
         "logo_clave": "INDUWORK",
     },
     "coimsa": {
-        "primary_color": "#56BF75",
+        "primary_color": "#56BF75",      # Verde
         "banner": "coimsa.jpg",
-        "titulo": "COIMSA — OPORTUNIDADES DE ASEO",
+        "titulo_general": "LICITACIONES",
         "empresa": "Coimsa",
         "logo_clave": "COIMSASPA",
     },
     "especial": {
-        "primary_color": "#C9A227",
+        "primary_color": "#C9A227",      # Dorado
         "banner": "inversiones.jpg",
-        "titulo": "MVI — OPORTUNIDADES SOCIALES",
+        "titulo_general": "LICITACIONES",
         "empresa": "MVI",
         "logo_clave": "MVI",
     },
 }
 
 # ============================================================
-# RUTAS DE ASSETS (con DEBUG)
+# RUTAS DE ASSETS
 # ============================================================
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASSETS_DIR = os.path.join(BASE_DIR, "src", "assets", "images")
 BANNERS_DIR = os.path.join(ASSETS_DIR, "banners")
 
-# DEBUG: imprimir rutas al iniciar
-print(f"🔍 BASE_DIR: {BASE_DIR}")
-print(f"🔍 ASSETS_DIR: {ASSETS_DIR}")
-print(f"🔍 BANNERS_DIR: {BANNERS_DIR}")
-print(f"🔍 ¿Existe BANNERS_DIR? {os.path.exists(BANNERS_DIR)}")
-if os.path.exists(BANNERS_DIR):
-    print(f"🔍 Archivos en BANNERS_DIR: {os.listdir(BANNERS_DIR)}")
-
 
 def _get_banner_path(categoria: str) -> str:
-    """
-    Busca el banner correspondiente en src/assets/images/banners/
-    Con DEBUG para ver qué está pasando.
-    """
+    """Busca el banner correspondiente en src/assets/images/banners/"""
     config = CATEGORY_CONFIG.get(categoria)
     if not config:
-        print(f"⚠️ Categoría no encontrada: {categoria}")
         return ""
     
     banner_name = config["banner"]
     banner_path = os.path.join(BANNERS_DIR, banner_name)
     
-    print(f"🔍 Buscando banner para {categoria}: {banner_path}")
-    print(f"🔍 ¿Existe? {os.path.exists(banner_path)}")
-    
     if os.path.exists(banner_path):
-        print(f"✅ Banner encontrado: {banner_path}")
         return banner_path
     
     # Fallback: buscar cualquier archivo que contenga el nombre
     if os.path.exists(BANNERS_DIR):
         for fname in os.listdir(BANNERS_DIR):
-            print(f"🔍 Comparando: '{banner_name.lower()}' vs '{fname.lower().replace(' ', '')}'")
             if banner_name.lower() in fname.lower().replace(" ", ""):
-                found_path = os.path.join(BANNERS_DIR, fname)
-                print(f"✅ Banner encontrado por fallback: {found_path}")
-                return found_path
+                return os.path.join(BANNERS_DIR, fname)
     
-    print(f"❌ Banner NO encontrado para {categoria}")
     return ""
 
 
 def _get_logo_path(clave: str) -> str:
-    """Busca el logo en src/assets/images/ por clave (con DEBUG)"""
+    """Busca el logo en src/assets/images/ por clave"""
     if not os.path.isdir(ASSETS_DIR):
-        print(f"⚠️ ASSETS_DIR no existe: {ASSETS_DIR}")
         return ""
     
-    print(f"🔍 Buscando logo para clave: {clave} en {ASSETS_DIR}")
     for fname in os.listdir(ASSETS_DIR):
-        # Ignorar la carpeta banners
         if os.path.isdir(os.path.join(ASSETS_DIR, fname)):
             continue
-        print(f"🔍 Comparando: '{clave.lower()}' vs '{fname.lower().replace(' ', '')}'")
         if clave.lower() in fname.lower().replace(" ", ""):
-            found_path = os.path.join(ASSETS_DIR, fname)
-            print(f"✅ Logo encontrado: {found_path}")
-            return found_path
+            return os.path.join(ASSETS_DIR, fname)
     
-    print(f"❌ Logo NO encontrado para {clave}")
     return ""
 
 
@@ -112,35 +85,48 @@ def generar_html_correo(
     """
     Genera el HTML completo del correo con:
     - Banner completo (imagen)
-    - Título
-    - Tabla de licitaciones
+    - Título (sin fondo)
+    - Tabla de licitaciones con padding
+    - Contador debajo de la tabla
     - Footer con feedback
     """
     config = CATEGORY_CONFIG.get(categoria, CATEGORY_CONFIG["induwork"])
     
     primary_color = "#d9534f" if es_alerta_urgente else config["primary_color"]
-    titulo = f"🚨 ALERTA URGENTE: {config['titulo']}" if es_alerta_urgente else config['titulo']
+    
+    # Determinar el título según el tipo de alerta
+    if es_alerta_urgente:
+        titulo = "🚨 ALERTA URGENTE: COMPRAS ÁGILES"
+    else:
+        titulo = config["titulo_general"]  # "LICITACIONES"
 
     # Buscar banner
     banner_path = _get_banner_path(categoria)
     banner_cid = "banner" if banner_path else ""
     
-    # Si no hay banner, usar un color de fondo como fallback
+    # Banner HTML
     banner_html = ""
     if banner_path:
         banner_html = f'<img src="cid:{banner_cid}" alt="{config["empresa"]}" style="width: 100%; height: auto; display: block; border-radius: 12px 12px 0 0;">'
     else:
-        # Fallback: mostrar un div con el color de la empresa
-        banner_html = f'<div style="width: 100%; height: 120px; background-color: {primary_color}; border-radius: 12px 12px 0 0; display: flex; align-items: center; justify-content: center;">'
-        banner_html += f'<span style="color: white; font-size: 24px; font-weight: bold;">{config["empresa"]}</span>'
-        banner_html += '</div>'
-        print(f"⚠️ Usando fallback de color para {categoria} porque no se encontró banner")
+        # Fallback
+        banner_html = f'<div style="width: 100%; height: 100px; background-color: {primary_color}; border-radius: 12px 12px 0 0;"></div>'
 
     # Construir la tabla HTML
-    tabla_html = _generar_tabla_html(licitaciones, primary_color) if licitaciones else ""
+    tabla_html = _generar_tabla_html(licitaciones) if licitaciones else ""
 
+    # Si no hay licitaciones pero hay cuerpo_extra_html (reportes)
     if not licitaciones and cuerpo_extra_html:
         tabla_html = cuerpo_extra_html
+
+    # Contador de oportunidades (solo si hay licitaciones)
+    contador_html = ""
+    if licitaciones:
+        contador_html = f"""
+        <p style="text-align: center; font-size: 14px; color: #666666; margin: 10px 0 0 0; font-weight: 500;">
+            Total de oportunidades: <b style="color: {primary_color};">{len(licitaciones)}</b>
+        </p>
+        """
 
     html = f"""
     <!DOCTYPE html>
@@ -148,16 +134,16 @@ def generar_html_correo(
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>{config['titulo']}</title>
+        <title>{config['empresa']} - {titulo}</title>
     </head>
-    <body style="margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; background-color: #f0f2f5;">
+    <body style="margin: 0; padding: 20px; font-family: 'Segoe UI', Arial, sans-serif; background-color: #f0f2f5;">
 
-        <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 700px; background-color: #ffffff; margin: 20px auto; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08);">
+        <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 720px; background-color: #ffffff; margin: 0 auto; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08);">
             <tr>
                 <td style="padding: 0;">
 
                     <!-- ============================================ -->
-                    <!-- BANNER (imagen completa o fallback)          -->
+                    <!-- BANNER (imagen completa)                     -->
                     <!-- ============================================ -->
                     <table width="100%" cellpadding="0" cellspacing="0">
                         <tr>
@@ -168,12 +154,12 @@ def generar_html_correo(
                     </table>
 
                     <!-- ============================================ -->
-                    <!-- TÍTULO (solo el título)                     -->
+                    <!-- TÍTULO (sin fondo, solo texto)               -->
                     <!-- ============================================ -->
-                    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: {primary_color}; padding: 14px 20px;">
+                    <table width="100%" cellpadding="0" cellspacing="0" style="padding: 18px 24px 8px 24px;">
                         <tr>
                             <td style="text-align: center;">
-                                <h2 style="color: #ffffff; margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.5px;">
+                                <h2 style="color: #1A1A2E; margin-top: 20x; font-size: 22px; font-weight: 700; letter-spacing: 0.5px;">
                                     {titulo}
                                 </h2>
                             </td>
@@ -181,16 +167,23 @@ def generar_html_correo(
                     </table>
 
                     <!-- ============================================ -->
-                    <!-- CUERPO (tabla de licitaciones)               -->
+                    <!-- CUERPO (tabla de licitaciones con padding)   -->
                     <!-- ============================================ -->
-                    <table width="100%" cellpadding="0" cellspacing="0" style="padding: 20px 24px 10px 24px;">
+                    <table width="100%" cellpadding="0" cellspacing="0" style="padding: 8px 24px 10px 24px;">
                         <tr>
                             <td style="color: #333333; font-size: 14px; line-height: 1.6;">
                                 {tabla_html}
-                                <br>
-                                <p style="font-size: 12px; color: #999999; text-align: center; border-top: 1px solid #eee; padding-top: 14px; margin-top: 10px;">
-                                    🤖 Correo automático generado por el Bot de Adquisiciones MVI
-                                </p>
+                            </td>
+                        </tr>
+                    </table>
+
+                    <!-- ============================================ -->
+                    <!-- CONTADOR (debajo de la tabla, centrado)      -->
+                    <!-- ============================================ -->
+                    <table width="100%" cellpadding="0" cellspacing="0" style="padding: 0 24px 16px 24px;">
+                        <tr>
+                            <td>
+                                {contador_html}
                             </td>
                         </tr>
                     </table>
@@ -198,7 +191,7 @@ def generar_html_correo(
                     <!-- ============================================ -->
                     <!-- FOOTER (feedback)                            -->
                     <!-- ============================================ -->
-                    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: {primary_color}; padding: 16px 20px; border-radius: 0 0 12px 12px;">
+                    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: {primary_color}; padding: 16px 24px; border-radius: 0 0 12px 12px;">
                         <tr>
                             <td style="text-align: center;">
                                 <p style="margin: 0 0 4px 0; color: #ffffff; font-weight: 600; font-size: 13px;">
@@ -230,7 +223,7 @@ def generar_html_correo(
     return html
 
 
-def _generar_tabla_html(licitaciones: list, primary_color: str = "#E8720C") -> str:
+def _generar_tabla_html(licitaciones: list) -> str:
     """Genera la tabla HTML con todas las licitaciones."""
     if not licitaciones:
         return ""
@@ -240,23 +233,23 @@ def _generar_tabla_html(licitaciones: list, primary_color: str = "#E8720C") -> s
         enlace = l.get("link", "https://www.mercadopublico.cl")
         filas += f"""
         <tr>
-            <td style="padding: 8px 6px; border: 1px solid #e0e0e0; font-size: 12px; text-align: center;">
+            <td style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 12px; text-align: center;">
                 <b>{l.get('id', '')}</b>
             </td>
-            <td style="padding: 8px 6px; border: 1px solid #e0e0e0; font-size: 12px;">
+            <td style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 12px;">
                 {l.get('nombre', '')[:60]}{'...' if len(l.get('nombre', '')) > 60 else ''}
             </td>
-            <td style="padding: 8px 6px; border: 1px solid #e0e0e0; font-size: 11px; color: #555;">
+            <td style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; color: #555;">
                 {l.get('organismo', '')}
             </td>
-            <td style="padding: 8px 6px; border: 1px solid #e0e0e0; font-size: 11px; text-align: center;">
+            <td style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; text-align: center;">
                 {l.get('region', '')}
             </td>
-            <td style="padding: 8px 6px; border: 1px solid #e0e0e0; font-size: 12px; text-align: center; color: #d9534f; font-weight: 600;">
+            <td style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 12px; text-align: center; color: #d9534f; font-weight: 600;">
                 {l.get('fecha_cierre', '')}
             </td>
-            <td style="padding: 8px 6px; border: 1px solid #e0e0e0; text-align: center;">
-                <a href="{enlace}" style="background-color: {primary_color}; color: white; padding: 4px 12px; text-decoration: none; border-radius: 4px; font-size: 11px; font-weight: 600; display: inline-block;" target="_blank">
+            <td style="padding: 10px 8px; border: 1px solid #e0e0e0; text-align: center;">
+                <a href="{enlace}" style="background-color: #1A1A2E; color: white; padding: 5px 14px; text-decoration: none; border-radius: 4px; font-size: 11px; font-weight: 600; display: inline-block;" target="_blank">
                     Ver
                 </a>
             </td>
@@ -264,18 +257,15 @@ def _generar_tabla_html(licitaciones: list, primary_color: str = "#E8720C") -> s
         """
 
     return f"""
-    <p style="font-weight: 600; color: {primary_color}; font-size: 15px; margin: 0 0 10px 0;">
-        📋 Oportunidades detectadas ({len(licitaciones)})
-    </p>
-    <table style="width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; font-size: 12px; margin-top: 4px;">
+    <table style="width: 100%; border-collapse: collapse; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; margin-top: 4px;">
         <thead>
             <tr style="background-color: #f4f4f4; text-align: left;">
-                <th style="padding: 8px 6px; border: 1px solid #e0e0e0; font-size: 11px;">ID</th>
-                <th style="padding: 8px 6px; border: 1px solid #e0e0e0; font-size: 11px;">Nombre</th>
-                <th style="padding: 8px 6px; border: 1px solid #e0e0e0; font-size: 11px;">Institución</th>
-                <th style="padding: 8px 6px; border: 1px solid #e0e0e0; font-size: 11px;">Región</th>
-                <th style="padding: 8px 6px; border: 1px solid #e0e0e0; font-size: 11px;">Cierra</th>
-                <th style="padding: 8px 6px; border: 1px solid #e0e0e0; font-size: 11px; text-align: center;">Link</th>
+                <th style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; font-weight: 600;">ID</th>
+                <th style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; font-weight: 600;">Nombre</th>
+                <th style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; font-weight: 600;">Institución</th>
+                <th style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; font-weight: 600;">Región</th>
+                <th style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; font-weight: 600;">Cierra</th>
+                <th style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; font-weight: 600; text-align: center;">Link</th>
             </tr>
         </thead>
         <tbody>{filas}</tbody>
