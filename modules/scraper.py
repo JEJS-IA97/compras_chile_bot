@@ -313,3 +313,22 @@ def contar_por_tipo(documentos):
     licitaciones = sum(1 for d in documentos if d.get("tipo") == "Licitación")
     compras_agiles = sum(1 for d in documentos if d.get("tipo") == "Compra Ágil")
     return {"licitaciones": licitaciones, "compras_agiles": compras_agiles}
+
+def agrupar_por_empresa_con_override(documentos, solo_categoria=None):
+    """
+    Separa una lista de documentos en coimsa / induwork / especial.
+    Si solo_categoria no es None, devuelve solo esa categoría.
+    """
+    resultado = {"coimsa": [], "induwork": [], "especial": []}
+    for d in documentos:
+        clasif = d.get("clasificacion", {})
+        if clasif.get("coimsa"):
+            resultado["coimsa"].append(d)
+        elif clasif.get("induwork"):
+            resultado["induwork"].append(d)
+        elif clasif.get("especial"):
+            resultado["especial"].append(d)
+    
+    if solo_categoria and solo_categoria in resultado:
+        return {solo_categoria: resultado[solo_categoria]}
+    return resultado
