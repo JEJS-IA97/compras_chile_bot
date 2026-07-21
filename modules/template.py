@@ -1,178 +1,293 @@
-# modules/mailer.py
+# modules/template.py
 
 import os
-import smtplib
-import mimetypes
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.image import MIMEImage
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-from modules.template import generar_html_correo, obtener_imagenes_para_cid
-
-SMTP_SERVER = os.getenv("SMTP_SERVER", "mail.inversionesmvi.cl")
-SMTP_PORT = int(os.getenv("SMTP_PORT", 465))
-EMAIL_USER = os.getenv("EMAIL_USER")
-EMAIL_PASS = os.getenv("EMAIL_PASS")
+CL_TZ = ZoneInfo("America/Santiago")
 
 # ============================================================
-# DESTINATARIOS POR TIPO DE TAREA (MODO PRUEBA)
+# CONFIGURACIÓN DE CATEGORÍAS
 # ============================================================
-DEST_PRUEBA_GERENCIA = "gerencia@induwork.cl"
-DEST_PRUEBA_SOPORTE = "soporte@induwork.cl"
-
-# Destinatarios originales (para cuando se quiera volver a producción)
-DEST_INDUWORK_ORIGINAL = os.getenv("DEST_INDUWORK", "asaravia@induwork.cl")
-DEST_COIMSA_ORIGINAL = os.getenv("DEST_COIMSA", "asaravia@induwork.cl")
-DEST_ESPECIAL_ORIGINAL = os.getenv("DEST_ESPECIAL", "proyectos@induwork.cl")
-
-# ============================================================
-# CONFIGURACIÓN POR CATEGORÍA
-# ============================================================
-CONFIG_CATEGORIAS = {
+CATEGORY_CONFIG = {
     "induwork": {
-        "destinatario": DEST_PRUEBA_GERENCIA,
-        "remitente_nombre": "Induwork",
+        "primary_color": "#E8720C",
+        "banner": "induwork.jpg",  
+        "titulo": "INDUWORK — OPORTUNIDADES TÁCTICAS",
+        "empresa": "Induwork",
         "logo_clave": "INDUWORK",
     },
     "coimsa": {
-        "destinatario": DEST_PRUEBA_GERENCIA,
-        "remitente_nombre": "Coimsa",
+        "primary_color": "#56BF75",
+        "banner": "coimsa.jpg",
+        "titulo": "COIMSA — OPORTUNIDADES DE ASEO",
+        "empresa": "Coimsa",
         "logo_clave": "COIMSASPA",
     },
     "especial": {
-        "destinatario": DEST_PRUEBA_GERENCIA,
-        "remitente_nombre": "MVI",
+        "primary_color": "#C9A227",
+        "banner": "inversiones.jpg",
+        "titulo": "MVI — OPORTUNIDADES SOCIALES",
+        "empresa": "MVI",
         "logo_clave": "MVI",
     },
 }
 
+# ============================================================
+# RUTAS DE ASSETS (con DEBUG)
+# ============================================================
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ASSETS_DIR = os.path.join(BASE_DIR, "src", "assets", "images")
+BANNERS_DIR = os.path.join(ASSETS_DIR, "banners")
 
-def enviar_correo_categoria(
+# DEBUG: imprimir rutas al iniciar
+print(f"🔍 BASE_DIR: {BASE_DIR}")
+print(f"🔍 ASSETS_DIR: {ASSETS_DIR}")
+print(f"🔍 BANNERS_DIR: {BANNERS_DIR}")
+print(f"🔍 ¿Existe BANNERS_DIR? {os.path.exists(BANNERS_DIR)}")
+if os.path.exists(BANNERS_DIR):
+    print(f"🔍 Archivos en BANNERS_DIR: {os.listdir(BANNERS_DIR)}")
+
+
+def _get_banner_path(categoria: str) -> str:
+    """
+    Busca el banner correspondiente en src/assets/images/banners/
+    Con DEBUG para ver qué está pasando.
+    """
+    config = CATEGORY_CONFIG.get(categoria)
+    if not config:
+        print(f"⚠️ Categoría no encontrada: {categoria}")
+        return ""
+    
+    banner_name = config["banner"]
+    banner_path = os.path.join(BANNERS_DIR, banner_name)
+    
+    print(f"🔍 Buscando banner para {categoria}: {banner_path}")
+    print(f"🔍 ¿Existe? {os.path.exists(banner_path)}")
+    
+    if os.path.exists(banner_path):
+        print(f"✅ Banner encontrado: {banner_path}")
+        return banner_path
+    
+    # Fallback: buscar cualquier archivo que contenga el nombre
+    if os.path.exists(BANNERS_DIR):
+        for fname in os.listdir(BANNERS_DIR):
+            print(f"🔍 Comparando: '{banner_name.lower()}' vs '{fname.lower().replace(' ', '')}'")
+            if banner_name.lower() in fname.lower().replace(" ", ""):
+                found_path = os.path.join(BANNERS_DIR, fname)
+                print(f"✅ Banner encontrado por fallback: {found_path}")
+                return found_path
+    
+    print(f"❌ Banner NO encontrado para {categoria}")
+    return ""
+
+
+def _get_logo_path(clave: str) -> str:
+    """Busca el logo en src/assets/images/ por clave (con DEBUG)"""
+    if not os.path.isdir(ASSETS_DIR):
+        print(f"⚠️ ASSETS_DIR no existe: {ASSETS_DIR}")
+        return ""
+    
+    print(f"🔍 Buscando logo para clave: {clave} en {ASSETS_DIR}")
+    for fname in os.listdir(ASSETS_DIR):
+        # Ignorar la carpeta banners
+        if os.path.isdir(os.path.join(ASSETS_DIR, fname)):
+            continue
+        print(f"🔍 Comparando: '{clave.lower()}' vs '{fname.lower().replace(' ', '')}'")
+        if clave.lower() in fname.lower().replace(" ", ""):
+            found_path = os.path.join(ASSETS_DIR, fname)
+            print(f"✅ Logo encontrado: {found_path}")
+            return found_path
+    
+    print(f"❌ Logo NO encontrado para {clave}")
+    return ""
+
+
+def generar_html_correo(
     categoria: str,
-    asunto: str,
     licitaciones: list,
     es_alerta_urgente: bool = False,
     cuerpo_extra_html: str = "",
-    destinatario_override: str = None,
-) -> bool:
+) -> str:
     """
-    Envía un correo con la plantilla dinámica correspondiente a la categoría.
+    Genera el HTML completo del correo con:
+    - Banner completo (imagen)
+    - Título
+    - Tabla de licitaciones
+    - Footer con feedback
     """
-    if categoria not in CONFIG_CATEGORIAS:
-        print(f"❌ Categoría desconocida: {categoria}")
-        return False
+    config = CATEGORY_CONFIG.get(categoria, CATEGORY_CONFIG["induwork"])
+    
+    primary_color = "#d9534f" if es_alerta_urgente else config["primary_color"]
+    titulo = f"🚨 ALERTA URGENTE: {config['titulo']}" if es_alerta_urgente else config['titulo']
 
-    if not licitaciones and not cuerpo_extra_html:
-        print(f"ℹ️ No hay contenido para enviar en categoría {categoria}.")
-        return False
+    # Buscar banner
+    banner_path = _get_banner_path(categoria)
+    banner_cid = "banner" if banner_path else ""
+    
+    # Si no hay banner, usar un color de fondo como fallback
+    banner_html = ""
+    if banner_path:
+        banner_html = f'<img src="cid:{banner_cid}" alt="{config["empresa"]}" style="width: 100%; height: auto; display: block; border-radius: 12px 12px 0 0;">'
+    else:
+        # Fallback: mostrar un div con el color de la empresa
+        banner_html = f'<div style="width: 100%; height: 120px; background-color: {primary_color}; border-radius: 12px 12px 0 0; display: flex; align-items: center; justify-content: center;">'
+        banner_html += f'<span style="color: white; font-size: 24px; font-weight: bold;">{config["empresa"]}</span>'
+        banner_html += '</div>'
+        print(f"⚠️ Usando fallback de color para {categoria} porque no se encontró banner")
 
-    if not EMAIL_USER or not EMAIL_PASS:
-        print("❌ Error: EMAIL_USER o EMAIL_PASS no están configurados.")
-        return False
+    # Construir la tabla HTML
+    tabla_html = _generar_tabla_html(licitaciones, primary_color) if licitaciones else ""
 
-    cfg = CONFIG_CATEGORIAS[categoria]
-    destinatario = destinatario_override or cfg["destinatario"]
+    if not licitaciones and cuerpo_extra_html:
+        tabla_html = cuerpo_extra_html
 
-    # Generar el HTML con la plantilla dinámica
-    html_content = generar_html_correo(
-        categoria=categoria,
-        licitaciones=licitaciones,
-        es_alerta_urgente=es_alerta_urgente,
-        cuerpo_extra_html=cuerpo_extra_html,
-    )
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{config['titulo']}</title>
+    </head>
+    <body style="margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; background-color: #f0f2f5;">
 
-    # Construir el mensaje
-    msg = MIMEMultipart("related")
-    msg["Subject"] = asunto
-    msg["From"] = f"{cfg['remitente_nombre']} - Bot Mercado Público <{EMAIL_USER}>"
-    msg["To"] = destinatario
+        <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 700px; background-color: #ffffff; margin: 20px auto; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08);">
+            <tr>
+                <td style="padding: 0;">
 
-    # Adjuntar HTML
-    alt = MIMEMultipart("alternative")
-    msg.attach(alt)
-    alt.attach(MIMEText(html_content, "html", "utf-8"))
+                    <!-- ============================================ -->
+                    <!-- BANNER (imagen completa o fallback)          -->
+                    <!-- ============================================ -->
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                        <tr>
+                            <td style="padding: 0;">
+                                {banner_html}
+                            </td>
+                        </tr>
+                    </table>
 
-    # Obtener imágenes y adjuntarlas como CID
-    imagenes = obtener_imagenes_para_cid(categoria)
-    for cid, ruta in imagenes.items():
-        if ruta and os.path.exists(ruta):
-            _adjuntar_imagen_como_cid(msg, ruta, cid)
+                    <!-- ============================================ -->
+                    <!-- TÍTULO (solo el título)                     -->
+                    <!-- ============================================ -->
+                    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: {primary_color}; padding: 14px 20px;">
+                        <tr>
+                            <td style="text-align: center;">
+                                <h2 style="color: #ffffff; margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.5px;">
+                                    {titulo}
+                                </h2>
+                            </td>
+                        </tr>
+                    </table>
 
-    # Enviar
-    exito = _enviar_smtp(msg, destinatario)
-    if exito:
-        print(f"✅ Correo [{categoria}] enviado exitosamente a {destinatario}")
-        if destinatario != cfg["destinatario"]:
-            print(f"   📌 (Override: destinatario original era {cfg['destinatario']})")
-    return exito
+                    <!-- ============================================ -->
+                    <!-- CUERPO (tabla de licitaciones)               -->
+                    <!-- ============================================ -->
+                    <table width="100%" cellpadding="0" cellspacing="0" style="padding: 20px 24px 10px 24px;">
+                        <tr>
+                            <td style="color: #333333; font-size: 14px; line-height: 1.6;">
+                                {tabla_html}
+                                <br>
+                                <p style="font-size: 12px; color: #999999; text-align: center; border-top: 1px solid #eee; padding-top: 14px; margin-top: 10px;">
+                                    🤖 Correo automático generado por el Bot de Adquisiciones MVI
+                                </p>
+                            </td>
+                        </tr>
+                    </table>
 
+                    <!-- ============================================ -->
+                    <!-- FOOTER (feedback)                            -->
+                    <!-- ============================================ -->
+                    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: {primary_color}; padding: 16px 20px; border-radius: 0 0 12px 12px;">
+                        <tr>
+                            <td style="text-align: center;">
+                                <p style="margin: 0 0 4px 0; color: #ffffff; font-weight: 600; font-size: 13px;">
+                                    ¿Este filtro está funcionando bien?
+                                </p>
+                                <p style="margin: 0 0 10px 0; color: rgba(255,255,255,0.85); font-size: 12px;">
+                                    Reporta licitaciones que <b>no corresponden</b> o sugiere nuevas palabras clave.
+                                </p>
+                                <a href="https://forms.gle/TU-FORMULARIO-ID" 
+                                   style="display: inline-block; background-color: #ffffff; color: {primary_color}; 
+                                          padding: 9px 28px; text-decoration: none; font-weight: 700; 
+                                          border-radius: 30px; font-size: 13px; margin-bottom: 6px;">
+                                    ✍️ Enviar Feedback
+                                </a>
+                                <p style="margin: 6px 0 0 0; color: rgba(255,255,255,0.7); font-size: 10px;">
+                                    © {datetime.now(CL_TZ).year} · {config['empresa']} · Bot automatizado
+                                </p>
+                            </td>
+                        </tr>
+                    </table>
 
-def _adjuntar_imagen_como_cid(msg, ruta, cid):
+                </td>
+            </tr>
+        </table>
+
+    </body>
+    </html>
     """
-    Adjunta una imagen con CID para insertar en el HTML.
-    Especifica explícitamente el tipo MIME para evitar errores.
+    return html
+
+
+def _generar_tabla_html(licitaciones: list, primary_color: str = "#E8720C") -> str:
+    """Genera la tabla HTML con todas las licitaciones."""
+    if not licitaciones:
+        return ""
+
+    filas = ""
+    for l in licitaciones:
+        enlace = l.get("link", "https://www.mercadopublico.cl")
+        filas += f"""
+        <tr>
+            <td style="padding: 8px 6px; border: 1px solid #e0e0e0; font-size: 12px; text-align: center;">
+                <b>{l.get('id', '')}</b>
+            </td>
+            <td style="padding: 8px 6px; border: 1px solid #e0e0e0; font-size: 12px;">
+                {l.get('nombre', '')[:60]}{'...' if len(l.get('nombre', '')) > 60 else ''}
+            </td>
+            <td style="padding: 8px 6px; border: 1px solid #e0e0e0; font-size: 11px; color: #555;">
+                {l.get('organismo', '')}
+            </td>
+            <td style="padding: 8px 6px; border: 1px solid #e0e0e0; font-size: 11px; text-align: center;">
+                {l.get('region', '')}
+            </td>
+            <td style="padding: 8px 6px; border: 1px solid #e0e0e0; font-size: 12px; text-align: center; color: #d9534f; font-weight: 600;">
+                {l.get('fecha_cierre', '')}
+            </td>
+            <td style="padding: 8px 6px; border: 1px solid #e0e0e0; text-align: center;">
+                <a href="{enlace}" style="background-color: {primary_color}; color: white; padding: 4px 12px; text-decoration: none; border-radius: 4px; font-size: 11px; font-weight: 600; display: inline-block;" target="_blank">
+                    Ver
+                </a>
+            </td>
+        </tr>
+        """
+
+    return f"""
+    <p style="font-weight: 600; color: {primary_color}; font-size: 15px; margin: 0 0 10px 0;">
+        📋 Oportunidades detectadas ({len(licitaciones)})
+    </p>
+    <table style="width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; font-size: 12px; margin-top: 4px;">
+        <thead>
+            <tr style="background-color: #f4f4f4; text-align: left;">
+                <th style="padding: 8px 6px; border: 1px solid #e0e0e0; font-size: 11px;">ID</th>
+                <th style="padding: 8px 6px; border: 1px solid #e0e0e0; font-size: 11px;">Nombre</th>
+                <th style="padding: 8px 6px; border: 1px solid #e0e0e0; font-size: 11px;">Institución</th>
+                <th style="padding: 8px 6px; border: 1px solid #e0e0e0; font-size: 11px;">Región</th>
+                <th style="padding: 8px 6px; border: 1px solid #e0e0e0; font-size: 11px;">Cierra</th>
+                <th style="padding: 8px 6px; border: 1px solid #e0e0e0; font-size: 11px; text-align: center;">Link</th>
+            </tr>
+        </thead>
+        <tbody>{filas}</tbody>
+    </table>
     """
-    try:
-        # Determinar el tipo MIME basado en la extensión
-        ext = os.path.splitext(ruta)[1].lower()
-        if ext == '.jpg' or ext == '.jpeg':
-            mime_type = 'image/jpeg'
-        elif ext == '.png':
-            mime_type = 'image/png'
-        elif ext == '.gif':
-            mime_type = 'image/gif'
-        else:
-            # Intentar adivinar automáticamente
-            mime_type = mimetypes.guess_type(ruta)[0] or 'image/jpeg'
-        
-        print(f"📎 Adjuntando {ruta} como {mime_type}")
-        
-        with open(ruta, "rb") as f:
-            img_data = f.read()
-        
-        # Crear MIMEImage con el tipo específico
-        img = MIMEImage(img_data, _subtype=mime_type.split('/')[-1])
-        img.add_header("Content-ID", f"<{cid}>")
-        img.add_header("Content-Disposition", "inline", filename=os.path.basename(ruta))
-        msg.attach(img)
-        print(f"✅ Imagen adjuntada: {os.path.basename(ruta)} como {cid}")
-        return True
-    except Exception as e:
-        print(f"⚠️ No se pudo adjuntar {ruta}: {e}")
-        return False
 
 
-def _enviar_smtp(msg, destinatario):
-    try:
-        if SMTP_PORT == 465:
-            with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
-                server.login(EMAIL_USER, EMAIL_PASS)
-                server.sendmail(EMAIL_USER, destinatario, msg.as_string())
-        else:
-            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-                server.starttls()
-                server.login(EMAIL_USER, EMAIL_PASS)
-                server.sendmail(EMAIL_USER, destinatario, msg.as_string())
-        return True
-    except Exception as e:
-        print(f"❌ Error al enviar correo a {destinatario}: {e}")
-        return False
-
-
-# ============================================================
-# FUNCIONES DE AYUDA PARA CAMBIAR MODO (PRUEBA / PRODUCCIÓN)
-# ============================================================
-
-def set_modo_prueba():
-    """Cambia todos los destinatarios a gerencia@induwork.cl"""
-    for categoria in CONFIG_CATEGORIAS:
-        CONFIG_CATEGORIAS[categoria]["destinatario"] = DEST_PRUEBA_GERENCIA
-    print("🔧 Modo PRUEBA activado: todos los correos van a gerencia@induwork.cl")
-
-
-def set_modo_produccion():
-    """Restaura los destinatarios originales"""
-    CONFIG_CATEGORIAS["induwork"]["destinatario"] = DEST_INDUWORK_ORIGINAL
-    CONFIG_CATEGORIAS["coimsa"]["destinatario"] = DEST_COIMSA_ORIGINAL
-    CONFIG_CATEGORIAS["especial"]["destinatario"] = DEST_ESPECIAL_ORIGINAL
-    print("🔧 Modo PRODUCCIÓN activado: correos a destinatarios originales")
+def obtener_imagenes_para_cid(categoria: str) -> dict:
+    """
+    Devuelve un diccionario con las rutas de las imágenes que deben
+    incrustarse como CID en el correo.
+    """
+    return {
+        "banner": _get_banner_path(categoria),
+    }

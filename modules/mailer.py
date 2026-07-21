@@ -2,6 +2,7 @@
 
 import os
 import smtplib
+import mimetypes
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
@@ -16,33 +17,30 @@ EMAIL_PASS = os.getenv("EMAIL_PASS")
 # ============================================================
 # DESTINATARIOS POR TIPO DE TAREA (MODO PRUEBA)
 # ============================================================
-# En modo prueba, todos los correos van a gerencia@induwork.cl
-# EXCEPTO el resend-all que va a soporte@induwork.cl
-
 DEST_PRUEBA_GERENCIA = "gerencia@induwork.cl"
 DEST_PRUEBA_SOPORTE = "soporte@induwork.cl"
 
 # Destinatarios originales (para cuando se quiera volver a producción)
-DEST_INDUWORK_ORIGINAL = os.getenv("DEST_INDUWORK", "gerencia@induwork.cl")
-DEST_COIMSA_ORIGINAL = os.getenv("DEST_COIMSA", "gerencia@induwork.cl")
-DEST_ESPECIAL_ORIGINAL = os.getenv("DEST_ESPECIAL", "gerencia@induwork.cl")
+DEST_INDUWORK_ORIGINAL = os.getenv("DEST_INDUWORK", "asaravia@induwork.cl")
+DEST_COIMSA_ORIGINAL = os.getenv("DEST_COIMSA", "asaravia@induwork.cl")
+DEST_ESPECIAL_ORIGINAL = os.getenv("DEST_ESPECIAL", "proyectos@induwork.cl")
 
 # ============================================================
-# CONFIGURACIÓN POR CATEGORÍA (con destinatarios de prueba)
+# CONFIGURACIÓN POR CATEGORÍA
 # ============================================================
 CONFIG_CATEGORIAS = {
     "induwork": {
-        "destinatario": DEST_PRUEBA_GERENCIA,  # Todos a gerencia en modo prueba
+        "destinatario": DEST_PRUEBA_GERENCIA,
         "remitente_nombre": "Induwork",
         "logo_clave": "INDUWORK",
     },
     "coimsa": {
-        "destinatario": DEST_PRUEBA_GERENCIA,  # Todos a gerencia en modo prueba
+        "destinatario": DEST_PRUEBA_GERENCIA,
         "remitente_nombre": "Coimsa",
         "logo_clave": "COIMSASPA",
     },
     "especial": {
-        "destinatario": DEST_PRUEBA_GERENCIA,  # Todos a gerencia en modo prueba
+        "destinatario": DEST_PRUEBA_GERENCIA,
         "remitente_nombre": "MVI",
         "logo_clave": "MVI",
     },
@@ -55,18 +53,10 @@ def enviar_correo_categoria(
     licitaciones: list,
     es_alerta_urgente: bool = False,
     cuerpo_extra_html: str = "",
-    destinatario_override: str = None,  # Nuevo parámetro para override
+    destinatario_override: str = None,
 ) -> bool:
     """
     Envía un correo con la plantilla dinámica correspondiente a la categoría.
-    
-    Args:
-        categoria: 'induwork', 'coimsa' o 'especial'
-        asunto: Asunto del correo
-        licitaciones: Lista de licitaciones a incluir
-        es_alerta_urgente: Si es True, cambia el color del banner a rojo
-        cuerpo_extra_html: HTML adicional para incluir en el cuerpo
-        destinatario_override: Si se pasa, envía a este destinatario en lugar del configurado
     """
     if categoria not in CONFIG_CATEGORIAS:
         print(f"❌ Categoría desconocida: {categoria}")
@@ -81,8 +71,6 @@ def enviar_correo_categoria(
         return False
 
     cfg = CONFIG_CATEGORIAS[categoria]
-    
-    # Usar destinatario_override si se proporciona, si no, el de la configuración
     destinatario = destinatario_override or cfg["destinatario"]
 
     # Generar el HTML con la plantilla dinámica
@@ -120,13 +108,34 @@ def enviar_correo_categoria(
 
 
 def _adjuntar_imagen_como_cid(msg, ruta, cid):
-    """Adjunta una imagen con CID para insertar en el HTML."""
+    """
+    Adjunta una imagen con CID para insertar en el HTML.
+    Especifica explícitamente el tipo MIME para evitar errores.
+    """
     try:
+        # Determinar el tipo MIME basado en la extensión
+        ext = os.path.splitext(ruta)[1].lower()
+        if ext == '.jpg' or ext == '.jpeg':
+            mime_type = 'image/jpeg'
+        elif ext == '.png':
+            mime_type = 'image/png'
+        elif ext == '.gif':
+            mime_type = 'image/gif'
+        else:
+            # Intentar adivinar automáticamente
+            mime_type = mimetypes.guess_type(ruta)[0] or 'image/jpeg'
+        
+        print(f"📎 Adjuntando {ruta} como {mime_type}")
+        
         with open(ruta, "rb") as f:
-            img = MIMEImage(f.read())
+            img_data = f.read()
+        
+        # Crear MIMEImage con el tipo específico
+        img = MIMEImage(img_data, _subtype=mime_type.split('/')[-1])
         img.add_header("Content-ID", f"<{cid}>")
         img.add_header("Content-Disposition", "inline", filename=os.path.basename(ruta))
         msg.attach(img)
+        print(f"✅ Imagen adjuntada: {os.path.basename(ruta)} como {cid}")
         return True
     except Exception as e:
         print(f"⚠️ No se pudo adjuntar {ruta}: {e}")
