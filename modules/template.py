@@ -11,21 +11,21 @@ CL_TZ = ZoneInfo("America/Santiago")
 # ============================================================
 CATEGORY_CONFIG = {
     "induwork": {
-        "primary_color": "#f4901e",
+        "primary_color": "#E8720C",      # Naranjo
         "banner": "induwork.jpg",
         "titulo_general": "LICITACIONES",
         "empresa": "Induwork",
         "logo_clave": "INDUWORK",
     },
     "coimsa": {
-        "primary_color": "#054075",
+        "primary_color": "#56BF75",      # Verde
         "banner": "coimsa.jpg",
         "titulo_general": "LICITACIONES",
         "empresa": "Coimsa",
         "logo_clave": "COIMSASPA",
     },
     "especial": {
-        "primary_color": "#b69259",
+        "primary_color": "#C9A227",      # Dorado
         "banner": "inversiones.jpg",
         "titulo_general": "LICITACIONES",
         "empresa": "MVI",
@@ -103,8 +103,8 @@ def generar_html_correo(
     else:
         banner_html = f'<div style="width: 100%; height: 80px; background-color: {primary_color};"></div>'
 
-    # Construir la tabla HTML
-    tabla_html = _generar_tabla_html(licitaciones) if licitaciones else ""
+    # Construir la tabla HTML (pasamos el color primario)
+    tabla_html = _generar_tabla_html(licitaciones, primary_color) if licitaciones else ""
 
     if not licitaciones and cuerpo_extra_html:
         tabla_html = cuerpo_extra_html
@@ -214,7 +214,7 @@ def generar_html_correo(
                             <p style="margin: 0 0 10px 0; color: rgba(255,255,255,0.85); font-size: 12px;">
                                 Reporta licitaciones que <b>no corresponden</b> o sugiere nuevas palabras clave.
                             </p>
-                            <a href="https://forms.gle/TU-FORMULARIO-ID" 
+                            <a href="https://forms.gle/9WScZHxP9xaJCMYq9" 
                                style="display: inline-block; background-color: #ffffff; color: {primary_color}; 
                                       padding: 9px 28px; text-decoration: none; font-weight: 700; 
                                       border-radius: 30px; font-size: 13px; margin-bottom: 6px;">
@@ -237,8 +237,11 @@ def generar_html_correo(
     return html
 
 
-def _generar_tabla_html(licitaciones: list) -> str:
-    """Genera la tabla HTML con todas las licitaciones (compatible con Outlook)."""
+def _generar_tabla_html(licitaciones: list, primary_color: str = "#E8720C") -> str:
+    """
+    Genera la tabla HTML con todas las licitaciones.
+    La cabecera y los botones usan el color primario.
+    """
     if not licitaciones:
         return ""
 
@@ -263,7 +266,7 @@ def _generar_tabla_html(licitaciones: list) -> str:
                 {l.get('fecha_cierre', '')}
             </td>
             <td style="padding: 10px 8px; border: 1px solid #e0e0e0; text-align: center;">
-                <a href="{enlace}" style="background-color: #1A1A2E; color: white; padding: 5px 14px; text-decoration: none; border-radius: 4px; font-size: 11px; font-weight: 600; display: inline-block;" target="_blank">
+                <a href="{enlace}" style="background-color: {primary_color}; color: white; padding: 5px 14px; text-decoration: none; border-radius: 4px; font-size: 11px; font-weight: 600; display: inline-block;" target="_blank">
                     Ver
                 </a>
             </td>
@@ -273,13 +276,13 @@ def _generar_tabla_html(licitaciones: list) -> str:
     return f"""
     <table width="100%" border="0" cellpadding="0" cellspacing="0" style="border-collapse: collapse; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px;">
         <thead>
-            <tr style="background-color: #f4f4f4;">
-                <th style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; font-weight: 600; text-align: center;">ID</th>
-                <th style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; font-weight: 600; text-align: left;">Nombre</th>
-                <th style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; font-weight: 600; text-align: left;">Institución</th>
-                <th style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; font-weight: 600; text-align: center;">Región</th>
-                <th style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; font-weight: 600; text-align: center;">Cierra</th>
-                <th style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; font-weight: 600; text-align: center;">Link</th>
+            <tr style="background-color: {primary_color};">
+                <th style="padding: 10px 8px; border: 1px solid {primary_color}; font-size: 11px; font-weight: 600; text-align: center; color: #ffffff;">ID</th>
+                <th style="padding: 10px 8px; border: 1px solid {primary_color}; font-size: 11px; font-weight: 600; text-align: left; color: #ffffff;">Nombre</th>
+                <th style="padding: 10px 8px; border: 1px solid {primary_color}; font-size: 11px; font-weight: 600; text-align: left; color: #ffffff;">Institución</th>
+                <th style="padding: 10px 8px; border: 1px solid {primary_color}; font-size: 11px; font-weight: 600; text-align: center; color: #ffffff;">Región</th>
+                <th style="padding: 10px 8px; border: 1px solid {primary_color}; font-size: 11px; font-weight: 600; text-align: center; color: #ffffff;">Cierra</th>
+                <th style="padding: 10px 8px; border: 1px solid {primary_color}; font-size: 11px; font-weight: 600; text-align: center; color: #ffffff;">Link</th>
             </tr>
         </thead>
         <tbody>
