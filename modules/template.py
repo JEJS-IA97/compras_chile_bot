@@ -12,7 +12,7 @@ CL_TZ = ZoneInfo("America/Santiago")
 CATEGORY_CONFIG = {
     "induwork": {
         "primary_color": "#E8720C",
-        "banner": "induwork.jpg",      # OJO: sin 'k' en "work"
+        "banner": "induwork.jpg",  
         "titulo": "INDUWORK — OPORTUNIDADES TÁCTICAS",
         "empresa": "Induwork",
         "logo_clave": "INDUWORK",
