@@ -11,21 +11,21 @@ CL_TZ = ZoneInfo("America/Santiago")
 # ============================================================
 CATEGORY_CONFIG = {
     "induwork": {
-        "primary_color": "#E8720C",      # Naranjo
+        "primary_color": "#f4901e",
         "banner": "induwork.jpg",
         "titulo_general": "LICITACIONES",
         "empresa": "Induwork",
         "logo_clave": "INDUWORK",
     },
     "coimsa": {
-        "primary_color": "#56BF75",      # Verde
+        "primary_color": "#054075",
         "banner": "coimsa.jpg",
         "titulo_general": "LICITACIONES",
         "empresa": "Coimsa",
         "logo_clave": "COIMSASPA",
     },
     "especial": {
-        "primary_color": "#C9A227",      # Dorado
+        "primary_color": "#b69259",
         "banner": "inversiones.jpg",
         "titulo_general": "LICITACIONES",
         "empresa": "MVI",
@@ -53,7 +53,6 @@ def _get_banner_path(categoria: str) -> str:
     if os.path.exists(banner_path):
         return banner_path
     
-    # Fallback: buscar cualquier archivo que contenga el nombre
     if os.path.exists(BANNERS_DIR):
         for fname in os.listdir(BANNERS_DIR):
             if banner_name.lower() in fname.lower().replace(" ", ""):
@@ -83,148 +82,163 @@ def generar_html_correo(
     cuerpo_extra_html: str = "",
 ) -> str:
     """
-    Genera el HTML completo del correo con:
-    - Banner completo (imagen)
-    - Título (sin fondo)
-    - Tabla de licitaciones con padding
-    - Contador debajo de la tabla
-    - Footer con feedback
+    Genera el HTML completo del correo con tablas compatibles con Outlook.
     """
     config = CATEGORY_CONFIG.get(categoria, CATEGORY_CONFIG["induwork"])
     
     primary_color = "#d9534f" if es_alerta_urgente else config["primary_color"]
     
-    # Determinar el título según el tipo de alerta
     if es_alerta_urgente:
         titulo = "🚨 ALERTA URGENTE: COMPRAS ÁGILES"
     else:
-        titulo = config["titulo_general"]  # "LICITACIONES"
+        titulo = config["titulo_general"]
 
     # Buscar banner
     banner_path = _get_banner_path(categoria)
     banner_cid = "banner" if banner_path else ""
     
-    # Banner HTML
     banner_html = ""
     if banner_path:
-        banner_html = f'<img src="cid:{banner_cid}" alt="{config["empresa"]}" style="width: 100%; height: auto; display: block; border-radius: 12px 12px 0 0;">'
+        banner_html = f'<img src="cid:{banner_cid}" alt="{config["empresa"]}" style="width: 100%; height: auto; display: block;">'
     else:
-        # Fallback
-        banner_html = f'<div style="width: 100%; height: 100px; background-color: {primary_color}; border-radius: 12px 12px 0 0;"></div>'
+        banner_html = f'<div style="width: 100%; height: 80px; background-color: {primary_color};"></div>'
 
     # Construir la tabla HTML
     tabla_html = _generar_tabla_html(licitaciones) if licitaciones else ""
 
-    # Si no hay licitaciones pero hay cuerpo_extra_html (reportes)
     if not licitaciones and cuerpo_extra_html:
         tabla_html = cuerpo_extra_html
 
-    # Contador de oportunidades (solo si hay licitaciones)
     contador_html = ""
     if licitaciones:
         contador_html = f"""
-        <p style="text-align: center; font-size: 14px; color: #666666; margin: 10px 0 0 0; font-weight: 500;">
-            Total de oportunidades: <b style="color: {primary_color};">{len(licitaciones)}</b>
-        </p>
+        <tr>
+            <td style="text-align: center; padding: 10px 0 5px 0; font-size: 14px; color: #666666;">
+                <b style="color: {primary_color};">Total de oportunidades: {len(licitaciones)}</b>
+            </td>
+        </tr>
         """
 
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>{config['empresa']} - {titulo}</title>
-    </head>
-    <body style="margin: 0; padding: 20px; font-family: 'Segoe UI', Arial, sans-serif; background-color: #f0f2f5;">
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{config['empresa']} - {titulo}</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; background-color: #f0f2f5;">
 
-        <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 720px; background-color: #ffffff; margin: 0 auto; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08);">
-            <tr>
-                <td style="padding: 0;">
+    <!-- CONTENEDOR PRINCIPAL -->
+    <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 700px; background-color: #ffffff; margin: 20px auto; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08);">
+        <tr>
+            <td style="padding: 0;">
 
-                    <!-- ============================================ -->
-                    <!-- BANNER (imagen completa)                     -->
-                    <!-- ============================================ -->
-                    <table width="100%" cellpadding="0" cellspacing="0">
-                        <tr>
-                            <td style="padding: 0;">
-                                {banner_html}
-                            </td>
-                        </tr>
-                    </table>
+                <!-- ========================================== -->
+                <!-- BANNER                                    -->
+                <!-- ========================================== -->
+                <table width="100%" border="0" cellpadding="0" cellspacing="0">
+                    <tr>
+                        <td style="padding: 0;">
+                            {banner_html}
+                        </td>
+                    </tr>
+                </table>
 
-                    <!-- ============================================ -->
-                    <!-- TÍTULO (sin fondo, solo texto)               -->
-                    <!-- ============================================ -->
-                    <table width="100%" cellpadding="0" cellspacing="0" style="padding: 18px 24px 8px 24px;">
-                        <tr>
-                            <td style="text-align: center;">
-                                <h2 style="color: #1A1A2E; margin-top: 20x; font-size: 22px; font-weight: 700; letter-spacing: 0.5px;">
-                                    {titulo}
-                                </h2>
-                            </td>
-                        </tr>
-                    </table>
+                <!-- ========================================== -->
+                <!-- FILA ESPACIO SUPERIOR (para padding)      -->
+                <!-- ========================================== -->
+                <table width="100%" border="0" cellpadding="0" cellspacing="0">
+                    <tr>
+                        <td style="height: 20px; font-size: 0; line-height: 0;">&nbsp;</td>
+                    </tr>
+                </table>
 
-                    <!-- ============================================ -->
-                    <!-- CUERPO (tabla de licitaciones con padding)   -->
-                    <!-- ============================================ -->
-                    <table width="100%" cellpadding="0" cellspacing="0" style="padding: 8px 24px 10px 24px;">
-                        <tr>
-                            <td style="color: #333333; font-size: 14px; line-height: 1.6;">
-                                {tabla_html}
-                            </td>
-                        </tr>
-                    </table>
+                <!-- ========================================== -->
+                <!-- TÍTULO (sin fondo, solo texto)            -->
+                <!-- ========================================== -->
+                <table width="100%" border="0" cellpadding="0" cellspacing="0">
+                    <tr>
+                        <td style="text-align: center; padding: 0 20px 0 20px;">
+                            <h2 style="color: #1A1A2E; margin: 0; font-size: 22px; font-weight: 700; letter-spacing: 0.5px;">
+                                {titulo}
+                            </h2>
+                        </td>
+                    </tr>
+                </table>
 
-                    <!-- ============================================ -->
-                    <!-- CONTADOR (debajo de la tabla, centrado)      -->
-                    <!-- ============================================ -->
-                    <table width="100%" cellpadding="0" cellspacing="0" style="padding: 0 24px 16px 24px;">
-                        <tr>
-                            <td>
-                                {contador_html}
-                            </td>
-                        </tr>
-                    </table>
+                <!-- ========================================== -->
+                <!-- FILA ESPACIO (entre título y tabla)       -->
+                <!-- ========================================== -->
+                <table width="100%" border="0" cellpadding="0" cellspacing="0">
+                    <tr>
+                        <td style="height: 15px; font-size: 0; line-height: 0;">&nbsp;</td>
+                    </tr>
+                </table>
 
-                    <!-- ============================================ -->
-                    <!-- FOOTER (feedback)                            -->
-                    <!-- ============================================ -->
-                    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: {primary_color}; padding: 16px 24px; border-radius: 0 0 12px 12px;">
-                        <tr>
-                            <td style="text-align: center;">
-                                <p style="margin: 0 0 4px 0; color: #ffffff; font-weight: 600; font-size: 13px;">
-                                    ¿Este filtro está funcionando bien?
-                                </p>
-                                <p style="margin: 0 0 10px 0; color: rgba(255,255,255,0.85); font-size: 12px;">
-                                    Reporta licitaciones que <b>no corresponden</b> o sugiere nuevas palabras clave.
-                                </p>
-                                <a href="https://forms.gle/TU-FORMULARIO-ID" 
-                                   style="display: inline-block; background-color: #ffffff; color: {primary_color}; 
-                                          padding: 9px 28px; text-decoration: none; font-weight: 700; 
-                                          border-radius: 30px; font-size: 13px; margin-bottom: 6px;">
-                                    ✍️ Enviar Feedback
-                                </a>
-                                <p style="margin: 6px 0 0 0; color: rgba(255,255,255,0.7); font-size: 10px;">
-                                    © {datetime.now(CL_TZ).year} · {config['empresa']} · Bot automatizado
-                                </p>
-                            </td>
-                        </tr>
-                    </table>
+                <!-- ========================================== -->
+                <!-- TABLA DE LICITACIONES                     -->
+                <!-- ========================================== -->
+                <table width="100%" border="0" cellpadding="0" cellspacing="0" style="padding: 0 20px 0 20px;">
+                    <tr>
+                        <td style="padding: 0;">
+                            {tabla_html}
+                        </td>
+                    </tr>
+                </table>
 
-                </td>
-            </tr>
-        </table>
+                <!-- ========================================== -->
+                <!-- CONTADOR (debajo de la tabla)             -->
+                <!-- ========================================== -->
+                <table width="100%" border="0" cellpadding="0" cellspacing="0">
+                    {contador_html}
+                </table>
 
-    </body>
-    </html>
-    """
+                <!-- ========================================== -->
+                <!-- FILA ESPACIO (entre contador y footer)    -->
+                <!-- ========================================== -->
+                <table width="100%" border="0" cellpadding="0" cellspacing="0">
+                    <tr>
+                        <td style="height: 15px; font-size: 0; line-height: 0;">&nbsp;</td>
+                    </tr>
+                </table>
+
+                <!-- ========================================== -->
+                <!-- FOOTER (con padding explícito)            -->
+                <!-- ========================================== -->
+                <table width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color: {primary_color}; border-radius: 0 0 12px 12px;">
+                    <tr>
+                        <td style="padding: 16px 20px 16px 20px; text-align: center;">
+                            <p style="margin: 0 0 4px 0; color: #ffffff; font-weight: 600; font-size: 13px;">
+                                ¿Este filtro está funcionando bien?
+                            </p>
+                            <p style="margin: 0 0 10px 0; color: rgba(255,255,255,0.85); font-size: 12px;">
+                                Reporta licitaciones que <b>no corresponden</b> o sugiere nuevas palabras clave.
+                            </p>
+                            <a href="https://forms.gle/TU-FORMULARIO-ID" 
+                               style="display: inline-block; background-color: #ffffff; color: {primary_color}; 
+                                      padding: 9px 28px; text-decoration: none; font-weight: 700; 
+                                      border-radius: 30px; font-size: 13px; margin-bottom: 6px;">
+                                ✍️ Enviar Feedback
+                            </a>
+                            <p style="margin: 6px 0 0 0; color: rgba(255,255,255,0.7); font-size: 10px;">
+                                © {datetime.now(CL_TZ).year} · {config['empresa']} · Bot automatizado
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+
+            </td>
+        </tr>
+    </table>
+
+</body>
+</html>
+"""
     return html
 
 
 def _generar_tabla_html(licitaciones: list) -> str:
-    """Genera la tabla HTML con todas las licitaciones."""
+    """Genera la tabla HTML con todas las licitaciones (compatible con Outlook)."""
     if not licitaciones:
         return ""
 
@@ -237,7 +251,7 @@ def _generar_tabla_html(licitaciones: list) -> str:
                 <b>{l.get('id', '')}</b>
             </td>
             <td style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 12px;">
-                {l.get('nombre', '')[:60]}{'...' if len(l.get('nombre', '')) > 60 else ''}
+                {l.get('nombre', '')[:50]}{'...' if len(l.get('nombre', '')) > 50 else ''}
             </td>
             <td style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; color: #555;">
                 {l.get('organismo', '')}
@@ -257,27 +271,26 @@ def _generar_tabla_html(licitaciones: list) -> str:
         """
 
     return f"""
-    <table style="width: 100%; border-collapse: collapse; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; margin-top: 4px;">
+    <table width="100%" border="0" cellpadding="0" cellspacing="0" style="border-collapse: collapse; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px;">
         <thead>
-            <tr style="background-color: #f4f4f4; text-align: left;">
-                <th style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; font-weight: 600;">ID</th>
-                <th style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; font-weight: 600;">Nombre</th>
-                <th style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; font-weight: 600;">Institución</th>
-                <th style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; font-weight: 600;">Región</th>
-                <th style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; font-weight: 600;">Cierra</th>
+            <tr style="background-color: #f4f4f4;">
+                <th style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; font-weight: 600; text-align: center;">ID</th>
+                <th style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; font-weight: 600; text-align: left;">Nombre</th>
+                <th style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; font-weight: 600; text-align: left;">Institución</th>
+                <th style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; font-weight: 600; text-align: center;">Región</th>
+                <th style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; font-weight: 600; text-align: center;">Cierra</th>
                 <th style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; font-weight: 600; text-align: center;">Link</th>
             </tr>
         </thead>
-        <tbody>{filas}</tbody>
+        <tbody>
+            {filas}
+        </tbody>
     </table>
     """
 
 
 def obtener_imagenes_para_cid(categoria: str) -> dict:
-    """
-    Devuelve un diccionario con las rutas de las imágenes que deben
-    incrustarse como CID en el correo.
-    """
+    """Devuelve un diccionario con las rutas de las imágenes que deben incrustarse como CID."""
     return {
         "banner": _get_banner_path(categoria),
     }
