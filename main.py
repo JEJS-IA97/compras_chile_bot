@@ -7,9 +7,8 @@ from modules.scraper import (
     simular_scraping_compra_agil_urgente,
     obtener_almacenadas,
     agrupar_por_empresa,
-    contar_por_tipo,
 )
-from modules.mailer import enviar_correo_categoria
+from modules.mailer import enviar_correo_categoria, CONFIG_CATEGORIAS, DEST_PRUEBA_SOPORTE
 from config.database import get_db
 
 app = FastAPI(
@@ -25,11 +24,6 @@ else:
     print("⚠️ Bot iniciado sin conexión activa a la base de datos.")
 
 CL_TZ = ZoneInfo("America/Santiago")
-
-
-# ============================================================
-#  TAREAS DIARIAS / CADA 30 MIN
-# ============================================================
 
 def _enviar_por_categoria(items, hora_local, prefijo_asunto, es_alerta_urgente=False):
     """Reparte una lista de items ya clasificados a los 3 correos según corresponda."""
@@ -82,12 +76,8 @@ def tarea_reporte_diario():
     _enviar_por_categoria(nuevas, hora_local, "📋 Nuevas Oportunidades")
     print("📨 Correo(s) diario(s) enviado(s).")
 
-
-# ============================================================
-#  REPORTES SEMANAL Y MENSUAL (con contador)
-# ============================================================
-
 def _armar_cuerpo_resumen(nombre_categoria, items, dias_texto):
+    from modules.scraper import contar_por_tipo
     conteo = contar_por_tipo(items)
     return f"""
     <p>Resumen de <b>{nombre_categoria}</b> — {dias_texto}:</p>
@@ -119,7 +109,6 @@ def _reporte_periodo(desde, hasta, hora_local, prefijo_asunto, dias_texto):
             cuerpo_extra_html=cuerpo_extra,
         )
 
-
 def tarea_reporte_semanal():
     hora_local = datetime.now(CL_TZ).strftime("%H:%M")
     ahora_utc = datetime.utcnow()
@@ -129,7 +118,6 @@ def tarea_reporte_semanal():
 
 
 def tarea_reporte_mensual():
-    """Reporta el mes calendario ANTERIOR completo (pensado para correr el día 1 de cada mes)."""
     hoy_cl = datetime.now(CL_TZ)
     hora_local = hoy_cl.strftime("%H:%M")
 
@@ -144,17 +132,61 @@ def tarea_reporte_mensual():
     print(f"🗓️ Reporte Mensual ({hora_local} hora Chile) — mes: {nombre_mes}")
     _reporte_periodo(desde_utc, hasta_utc, hora_local, "🗓️ Resumen Mensual de Oportunidades", f"mes de {nombre_mes}")
 
-
 def tarea_reenviar_todo_almacenado():
-    """Reenvía TODO lo que hay guardado en Mongo, sin volver a consultar Mercado Público."""
+    """
+    Reenvía TODO lo que hay guardado en Mongo, sin volver a consultar Mercado Público.
+    Este reporte va a SOPORTE@INDUWORK.CL (para que el equipo de soporte pueda revisar)
+    """
     hora_local = datetime.now(CL_TZ).strftime("%H:%M")
-    print(f"📤 Reenviando todo lo almacenado ({hora_local} hora Chile)")
-    _reporte_periodo(None, None, hora_local, "📤 Reenvío Completo de la Base de Datos", "histórico completo")
+    print(f"📤 Reenviando todo lo almacenado a soporte ({hora_local} hora Chile)")
 
+    todas = obtener_almacenadas()
+    if not todas:
+        print("ℹ️ No hay datos almacenados en la base de datos.")
+        return
 
-# ============================================================
-#  ENDPOINTS
-# ============================================================
+    # Agrupar por empresa
+    grupos = agrupar_por_empresa(todas)
+    
+    # Contar totales
+    from modules.scraper import contar_por_tipo
+    total_licitaciones = 0
+    total_compras_agiles = 0
+    
+    for categoria, items in grupos.items():
+        if not items:
+            continue
+        conteo = contar_por_tipo(items)
+        total_licitaciones += conteo["licitaciones"]
+        total_compras_agiles += conteo["compras_agiles"]
+        
+        nombre_categoria = {
+            "coimsa": "Coimsa",
+            "induwork": "Induwork",
+            "especial": "MVI / Sociales"
+        }.get(categoria, categoria)
+
+        # Cuerpo del resumen
+        cuerpo_extra = f"""
+        <h3>📊 Resumen de {nombre_categoria}</h3>
+        <ul>
+            <li><b>{conteo['licitaciones']}</b> licitaciones</li>
+            <li><b>{conteo['compras_agiles']}</b> compras ágiles</li>
+            <li><b>{len(items)}</b> oportunidades totales</li>
+        </ul>
+        <hr>
+        """
+
+        enviar_correo_categoria(
+            categoria,
+            f"📤 REENVÍO COMPLETO DB ({nombre_categoria}) - {hora_local}",
+            items,
+            cuerpo_extra_html=cuerpo_extra,
+            destinatario_override=DEST_PRUEBA_SOPORTE, 
+        )
+
+    print(f"📨 Reenvío completo enviado a {DEST_PRUEBA_SOPORTE}")
+
 
 @app.get("/")
 def estado_bot():
@@ -162,6 +194,9 @@ def estado_bot():
         "status": "online",
         "proyecto": "Induwork & Coimsa & MVI Procurement Bot",
         "hora_chile": datetime.now(CL_TZ).isoformat(),
+        "modo_prueba": True, 
+        "destinatario_general": "gerencia@induwork.cl",
+        "destinatario_resend": "soporte@induwork.cl",
     }
 
 
@@ -192,7 +227,11 @@ def endpoint_monthly_report(background_tasks: BackgroundTasks):
 @app.get("/cron/resend-all")
 def endpoint_resend_all(background_tasks: BackgroundTasks):
     background_tasks.add_task(tarea_reenviar_todo_almacenado)
-    return {"status": "scheduled", "task": "resend-all"}
+    return {
+        "status": "scheduled",
+        "task": "resend-all",
+        "destinatario": DEST_PRUEBA_SOPORTE
+    }
 
 
 @app.get("/cron/test-fast-check-now")
