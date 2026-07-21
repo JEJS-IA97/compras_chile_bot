@@ -7,25 +7,25 @@ from zoneinfo import ZoneInfo
 CL_TZ = ZoneInfo("America/Santiago")
 
 # ============================================================
-# CONFIGURACIÓN DE CATEGORÍAS (SOLO COLORES Y TEXTOS)
+# CONFIGURACIÓN DE CATEGORÍAS
 # ============================================================
 CATEGORY_CONFIG = {
     "induwork": {
-        "primary_color": "#E8720C",      # Naranjo
-        "banner": "induwrok.jpg",
+        "primary_color": "#E8720C",
+        "banner": "induwork.jpg",      # OJO: sin 'k' en "work"
         "titulo": "INDUWORK — OPORTUNIDADES TÁCTICAS",
         "empresa": "Induwork",
         "logo_clave": "INDUWORK",
     },
     "coimsa": {
-        "primary_color": "#56BF75",      # Verde Coimsa
+        "primary_color": "#56BF75",
         "banner": "coimsa.jpg",
         "titulo": "COIMSA — OPORTUNIDADES DE ASEO",
         "empresa": "Coimsa",
         "logo_clave": "COIMSASPA",
     },
     "especial": {
-        "primary_color": "#C9A227",      # Dorado
+        "primary_color": "#C9A227",
         "banner": "inversiones.jpg",
         "titulo": "MVI — OPORTUNIDADES SOCIALES",
         "empresa": "MVI",
@@ -34,38 +34,72 @@ CATEGORY_CONFIG = {
 }
 
 # ============================================================
-# RUTAS DE ASSETS
+# RUTAS DE ASSETS (con DEBUG)
 # ============================================================
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASSETS_DIR = os.path.join(BASE_DIR, "src", "assets", "images")
 BANNERS_DIR = os.path.join(ASSETS_DIR, "banners")
 
+# DEBUG: imprimir rutas al iniciar
+print(f"🔍 BASE_DIR: {BASE_DIR}")
+print(f"🔍 ASSETS_DIR: {ASSETS_DIR}")
+print(f"🔍 BANNERS_DIR: {BANNERS_DIR}")
+print(f"🔍 ¿Existe BANNERS_DIR? {os.path.exists(BANNERS_DIR)}")
+if os.path.exists(BANNERS_DIR):
+    print(f"🔍 Archivos en BANNERS_DIR: {os.listdir(BANNERS_DIR)}")
+
 
 def _get_banner_path(categoria: str) -> str:
-    """Busca el banner correspondiente en src/assets/images/banners/"""
+    """
+    Busca el banner correspondiente en src/assets/images/banners/
+    Con DEBUG para ver qué está pasando.
+    """
     config = CATEGORY_CONFIG.get(categoria)
     if not config:
+        print(f"⚠️ Categoría no encontrada: {categoria}")
         return ""
+    
     banner_name = config["banner"]
     banner_path = os.path.join(BANNERS_DIR, banner_name)
+    
+    print(f"🔍 Buscando banner para {categoria}: {banner_path}")
+    print(f"🔍 ¿Existe? {os.path.exists(banner_path)}")
+    
     if os.path.exists(banner_path):
+        print(f"✅ Banner encontrado: {banner_path}")
         return banner_path
+    
     # Fallback: buscar cualquier archivo que contenga el nombre
-    for fname in os.listdir(BANNERS_DIR):
-        if banner_name.lower() in fname.lower().replace(" ", ""):
-            return os.path.join(BANNERS_DIR, fname)
+    if os.path.exists(BANNERS_DIR):
+        for fname in os.listdir(BANNERS_DIR):
+            print(f"🔍 Comparando: '{banner_name.lower()}' vs '{fname.lower().replace(' ', '')}'")
+            if banner_name.lower() in fname.lower().replace(" ", ""):
+                found_path = os.path.join(BANNERS_DIR, fname)
+                print(f"✅ Banner encontrado por fallback: {found_path}")
+                return found_path
+    
+    print(f"❌ Banner NO encontrado para {categoria}")
     return ""
 
 
 def _get_logo_path(clave: str) -> str:
-    """Busca el logo en src/assets/images/ por clave"""
+    """Busca el logo en src/assets/images/ por clave (con DEBUG)"""
     if not os.path.isdir(ASSETS_DIR):
+        print(f"⚠️ ASSETS_DIR no existe: {ASSETS_DIR}")
         return ""
+    
+    print(f"🔍 Buscando logo para clave: {clave} en {ASSETS_DIR}")
     for fname in os.listdir(ASSETS_DIR):
+        # Ignorar la carpeta banners
         if os.path.isdir(os.path.join(ASSETS_DIR, fname)):
             continue
+        print(f"🔍 Comparando: '{clave.lower()}' vs '{fname.lower().replace(' ', '')}'")
         if clave.lower() in fname.lower().replace(" ", ""):
-            return os.path.join(ASSETS_DIR, fname)
+            found_path = os.path.join(ASSETS_DIR, fname)
+            print(f"✅ Logo encontrado: {found_path}")
+            return found_path
+    
+    print(f"❌ Logo NO encontrado para {clave}")
     return ""
 
 
@@ -84,26 +118,27 @@ def generar_html_correo(
     """
     config = CATEGORY_CONFIG.get(categoria, CATEGORY_CONFIG["induwork"])
     
-    # Color: si es alerta urgente, rojo; si no, el color de la categoría
     primary_color = "#d9534f" if es_alerta_urgente else config["primary_color"]
-    
-    # Título: si es alerta urgente, agregar 🚨
     titulo = f"🚨 ALERTA URGENTE: {config['titulo']}" if es_alerta_urgente else config['titulo']
-    
-    # Tipo de oportunidad (para mostrar en el título de la tabla)
-    tipo_oportunidad = "COMPRAS ÁGILES URGENTES" if es_alerta_urgente else "LICITACIONES"
 
     # Buscar banner
     banner_path = _get_banner_path(categoria)
     banner_cid = "banner" if banner_path else ""
-
-    # Contador de oportunidades
-    total_oportunidades = len(licitaciones)
+    
+    # Si no hay banner, usar un color de fondo como fallback
+    banner_html = ""
+    if banner_path:
+        banner_html = f'<img src="cid:{banner_cid}" alt="{config["empresa"]}" style="width: 100%; height: auto; display: block; border-radius: 12px 12px 0 0;">'
+    else:
+        # Fallback: mostrar un div con el color de la empresa
+        banner_html = f'<div style="width: 100%; height: 120px; background-color: {primary_color}; border-radius: 12px 12px 0 0; display: flex; align-items: center; justify-content: center;">'
+        banner_html += f'<span style="color: white; font-size: 24px; font-weight: bold;">{config["empresa"]}</span>'
+        banner_html += '</div>'
+        print(f"⚠️ Usando fallback de color para {categoria} porque no se encontró banner")
 
     # Construir la tabla HTML
     tabla_html = _generar_tabla_html(licitaciones, primary_color) if licitaciones else ""
 
-    # Si no hay licitaciones pero hay cuerpo_extra_html (reportes)
     if not licitaciones and cuerpo_extra_html:
         tabla_html = cuerpo_extra_html
 
@@ -122,18 +157,18 @@ def generar_html_correo(
                 <td style="padding: 0;">
 
                     <!-- ============================================ -->
-                    <!-- BANNER (imagen completa, sin texto adicional) -->
+                    <!-- BANNER (imagen completa o fallback)          -->
                     <!-- ============================================ -->
                     <table width="100%" cellpadding="0" cellspacing="0">
                         <tr>
                             <td style="padding: 0;">
-                                <img src="cid:{banner_cid}" alt="{config['empresa']}" style="width: 100%; height: auto; display: block; border-radius: 12px 12px 0 0;">
+                                {banner_html}
                             </td>
                         </tr>
                     </table>
 
                     <!-- ============================================ -->
-                    <!-- TÍTULO (solo el título, sin logos ni fechas) -->
+                    <!-- TÍTULO (solo el título)                     -->
                     <!-- ============================================ -->
                     <table width="100%" cellpadding="0" cellspacing="0" style="background-color: {primary_color}; padding: 14px 20px;">
                         <tr>
