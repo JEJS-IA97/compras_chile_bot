@@ -11,21 +11,21 @@ CL_TZ = ZoneInfo("America/Santiago")
 # ============================================================
 CATEGORY_CONFIG = {
     "induwork": {
-        "primary_color": "#E8720C",      # Naranjo
+        "primary_color": "#f3901e",      # Naranjo
         "banner": "induwork.jpg",
         "titulo_general": "LICITACIONES",
         "empresa": "Induwork",
         "logo_clave": "INDUWORK",
     },
     "coimsa": {
-        "primary_color": "#56BF75",      # Verde
+        "primary_color": "#054075",      # Verde
         "banner": "coimsa.jpg",
         "titulo_general": "LICITACIONES",
         "empresa": "Coimsa",
         "logo_clave": "COIMSASPA",
     },
     "especial": {
-        "primary_color": "#C9A227",      # Dorado
+        "primary_color": "#c29f63",      # Dorado
         "banner": "inversiones.jpg",
         "titulo_general": "LICITACIONES",
         "empresa": "MVI",
