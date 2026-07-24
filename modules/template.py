@@ -109,31 +109,15 @@ def generar_html_correo(
     if not licitaciones and cuerpo_extra_html:
         tabla_html = cuerpo_extra_html
 
-contador_html = ""
-
-if licitaciones:
-    cantidad_licitaciones = sum(
-        1 for l in licitaciones
-        if l.get("tipo") == "Licitación"
-    )
-    cantidad_compras_agiles = sum(
-        1 for l in licitaciones
-        if l.get("tipo") == "Compra Ágil"
-    )
-
-    contador_html = f"""
-    <tr>
-        <td style="text-align: center; padding: 10px 0 5px 0; font-size: 14px; color: #666666;">
-            <b style="color: {primary_color};">
-                Total oportunidades: {len(licitaciones)}
-            </b>
-            <br>
-            Licitaciones: {cantidad_licitaciones}
-            <br>
-            Compras Ágiles: {cantidad_compras_agiles}
-        </td>
-    </tr>
-    """
+    contador_html = ""
+    if licitaciones:
+        contador_html = f"""
+        <tr>
+            <td style="text-align: center; padding: 10px 0 5px 0; font-size: 14px; color: #666666;">
+                <b style="color: {primary_color};">Total de oportunidades: {len(licitaciones)}</b>
+            </td>
+        </tr>
+        """
 
     html = f"""<!DOCTYPE html>
 <html>
@@ -269,29 +253,17 @@ def _generar_tabla_html(licitaciones: list, primary_color: str = "#E8720C") -> s
             <td style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 12px; text-align: center;">
                 <b>{l.get('id', '')}</b>
             </td>
-            <td style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 12px; text-align: center;">
-                <b>{l.get('tipo', '')}</b>
-            </td>
             <td style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 12px;">
                 {l.get('nombre', '')[:50]}{'...' if len(l.get('nombre', '')) > 50 else ''}
             </td>
             <td style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; color: #555;">
                 {l.get('organismo', '')}
             </td>
-            <td style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; color: #555;">
-                {l.get('monto', '')}
-            </td>
             <td style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 11px; text-align: center;">
-                {l.get('fecha_apertura', '')}
+                {l.get('region', '')}
             </td>
             <td style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 12px; text-align: center; color: #d9534f; font-weight: 600;">
                 {l.get('fecha_cierre', '')}
-            </td>
-            <td style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 12px; text-align: center; color: #d9534f; font-weight: 600;">
-                {l.get('garantia_seriedad', '')}
-            </td>
-            <td style="padding: 10px 8px; border: 1px solid #e0e0e0; font-size: 12px; text-align: center; color: #d9534f; font-weight: 600;">
-                {l.get('garantia_fiel_cumplimiento', '')}
             </td>
             <td style="padding: 10px 8px; border: 1px solid #e0e0e0; text-align: center;">
                 <a href="{enlace}" style="background-color: {primary_color}; color: white; padding: 5px 14px; text-decoration: none; border-radius: 4px; font-size: 11px; font-weight: 600; display: inline-block;" target="_blank">
@@ -306,14 +278,10 @@ def _generar_tabla_html(licitaciones: list, primary_color: str = "#E8720C") -> s
         <thead>
             <tr style="background-color: {primary_color};">
                 <th style="padding: 10px 8px; border: 1px solid {primary_color}; font-size: 11px; font-weight: 600; text-align: center; color: #ffffff;">ID</th>
-                <th style="padding: 10px 8px; border: 1px solid {primary_color}; font-size: 11px; font-weight: 600; text-align: center; color: #ffffff;">Tipo</th>
                 <th style="padding: 10px 8px; border: 1px solid {primary_color}; font-size: 11px; font-weight: 600; text-align: left; color: #ffffff;">Nombre</th>
                 <th style="padding: 10px 8px; border: 1px solid {primary_color}; font-size: 11px; font-weight: 600; text-align: left; color: #ffffff;">Institución</th>
-                <th style="padding: 10px 8px; border: 1px solid {primary_color}; font-size: 11px; font-weight: 600; text-align: center; color: #ffffff;">Monto</th>
-                <th style="padding: 10px 8px; border: 1px solid {primary_color}; font-size: 11px; font-weight: 600; text-align: center; color: #ffffff;">Apertura</th>
-                <th style="padding: 10px 8px; border: 1px solid {primary_color}; font-size: 11px; font-weight: 600; text-align: center; color: #ffffff;">Cierre</th>
-                <th style="padding: 10px 8px; border: 1px solid {primary_color}; font-size: 11px; font-weight: 600; text-align: center; color: #ffffff;">Garantía Oferta</th>
-                <th style="padding: 10px 8px; border: 1px solid {primary_color}; font-size: 11px; font-weight: 600; text-align: center; color: #ffffff;">Garantía Contrato</th>
+                <th style="padding: 10px 8px; border: 1px solid {primary_color}; font-size: 11px; font-weight: 600; text-align: center; color: #ffffff;">Región</th>
+                <th style="padding: 10px 8px; border: 1px solid {primary_color}; font-size: 11px; font-weight: 600; text-align: center; color: #ffffff;">Cierra</th>
                 <th style="padding: 10px 8px; border: 1px solid {primary_color}; font-size: 11px; font-weight: 600; text-align: center; color: #ffffff;">Link</th>
             </tr>
         </thead>
