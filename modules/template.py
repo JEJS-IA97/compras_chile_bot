@@ -158,6 +158,8 @@ def generar_html_correo(
 
 
 def _celda_garantia(requiere, monto=None):
+    if requiere is None:
+        return '<span style="color:#aaa; font-style:italic;">No disponible vía API</span>'
     if not requiere:
         return '<span style="color:#888;">No requiere</span>'
     texto = "Sí requiere"

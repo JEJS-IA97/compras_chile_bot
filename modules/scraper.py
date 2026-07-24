@@ -153,27 +153,18 @@ def _mapear_licitacion(lic_basico, detalle):
     )
     moneda = detalle.get("Moneda") or lic_basico.get("Moneda") or "CLP"
 
-    # --- Garantías (claves candidatas; se ajustan según lo que confirme el log de debug) ---
-    garantias = detalle.get("Garantias", {}) or {}
-    requiere_garantia_seriedad = bool(
-        garantias.get("MontoGarantiaSeriedad")
-        or garantias.get("RequiereGarantiaSeriedad")
-        or detalle.get("RequiereGarantiaSeriedad")
-    )
-    monto_garantia_seriedad = garantias.get("MontoGarantiaSeriedad") or detalle.get("MontoGarantiaSeriedad")
-
-    requiere_garantia_fiel = bool(
-        garantias.get("MontoGarantiaFielCumplimiento")
-        or garantias.get("RequiereGarantiaFielCumplimiento")
-        or detalle.get("RequiereGarantiaFielCumplimiento")
-    )
-    monto_garantia_fiel = garantias.get("MontoGarantiaFielCumplimiento") or detalle.get("MontoGarantiaFielCumplimiento")
+    # --- Garantías: la API pública de Mercado Público NO expone este dato en
+    # ninguna consulta (confirmado por su propio centro de ayuda: no existe un
+    # método para acceder a la ficha completa vía API). Se deja explícitamente
+    # como "no disponible" en vez de adivinar o mostrar un falso "no requiere".
+    requiere_garantia_seriedad = None
+    monto_garantia_seriedad = None
+    requiere_garantia_fiel = None
+    monto_garantia_fiel = None
 
     # Debug puntual: deja rastro en el log para poder ajustar claves con datos reales.
     if organismo == "Organismo Desconocido" and detalle:
         print(f"🩺 DEBUG organismo desconocido para {codigo}. Claves del detalle: {list(detalle.keys())}")
-    if not requiere_garantia_seriedad and not requiere_garantia_fiel and detalle:
-        print(f"🩺 DEBUG sin datos de garantía para {codigo}. Claves de 'Garantias': {list(garantias.keys()) if garantias else 'no existe la llave Garantias'}")
 
     return {
         "id": codigo,
