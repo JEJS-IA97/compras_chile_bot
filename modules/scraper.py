@@ -1,9 +1,12 @@
+# modules/scraper.py
+
 import os
 import datetime
 from zoneinfo import ZoneInfo
 import requests
 from config.database import get_db
 from modules.filters import evaluar_licitacion, posible_relevante
+from modules.ai_classifier import clasificar_con_gemini
 
 CL_TZ = ZoneInfo("America/Santiago")
 
@@ -16,7 +19,6 @@ HEADERS_V1 = {
     "Accept": "application/json"
 }
 
-# Ventana de "cierre pronto" para las alertas urgentes de Compra Ágil
 HORAS_URGENTE_COMPRA_AGIL = 72
 
 
@@ -25,7 +27,6 @@ def _url_licitacion(codigo):
 
 
 def _parsear_fecha(valor):
-    """Convierte strings tipo '2026-07-24T17:30:00' a datetime naive (hora Chile, sin tz)."""
     if not valor or not isinstance(valor, str):
         return None
     for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%d/%m/%Y %H:%M:%S", "%Y-%m-%d"):
@@ -46,18 +47,12 @@ def _formatear_monto(monto, moneda):
 
 
 def obtener_licitaciones_api_real():
-    """
-    Consulta la API v1 por fecha (listado BÁSICO del día: nombre, código, fecha de
-    cierre). Según la documentación oficial, esta consulta NO trae organismo,
-    descripción completa ni link — para eso hay que pedir el detalle por código.
-    """
     if not TICKET:
         print("❌ Error: No se ha configurado CHILECOMPRA_TICKET.")
         return []
 
     ahora = datetime.datetime.now(CL_TZ)
     hoy_str = ahora.strftime("%d%m%Y")
-
     url = f"{BASE_URL_V1}/licitaciones.json?fecha={hoy_str}&ticket={TICKET}"
 
     try:
@@ -91,10 +86,6 @@ def obtener_licitaciones_api_real():
 
 
 def obtener_detalle_licitacion(codigo):
-    """
-    Consulta el detalle COMPLETO de una licitación por su código. Aquí sí viene
-    el organismo, la descripción completa, la región, montos y garantías.
-    """
     url = f"{BASE_URL_V1}/licitaciones.json?codigo={codigo}&ticket={TICKET}"
     try:
         response = requests.get(url, headers=HEADERS_V1, timeout=15)
@@ -108,11 +99,6 @@ def obtener_detalle_licitacion(codigo):
 
 
 def _mapear_licitacion(lic_basico, detalle):
-    """
-    Combina el listado básico (por fecha) con el detalle completo (por código).
-    Usa varias claves candidatas por campo porque distintas versiones de la API
-    han usado nombres ligeramente distintos para el mismo dato.
-    """
     codigo = lic_basico.get("CodigoExterno") or detalle.get("CodigoExterno")
     comprador = detalle.get("Comprador", {}) or {}
     fechas = detalle.get("Fechas", {}) or {}
@@ -145,26 +131,12 @@ def _mapear_licitacion(lic_basico, detalle):
         or "Sin fecha"
     )
 
-    # --- Monto estimado ---
     monto_estimado = (
         detalle.get("MontoEstimado")
         or detalle.get("Monto")
         or lic_basico.get("MontoEstimado")
     )
     moneda = detalle.get("Moneda") or lic_basico.get("Moneda") or "CLP"
-
-    # --- Garantías: la API pública de Mercado Público NO expone este dato en
-    # ninguna consulta (confirmado por su propio centro de ayuda: no existe un
-    # método para acceder a la ficha completa vía API). Se deja explícitamente
-    # como "no disponible" en vez de adivinar o mostrar un falso "no requiere".
-    requiere_garantia_seriedad = None
-    monto_garantia_seriedad = None
-    requiere_garantia_fiel = None
-    monto_garantia_fiel = None
-
-    # Debug puntual: deja rastro en el log para poder ajustar claves con datos reales.
-    if organismo == "Organismo Desconocido" and detalle:
-        print(f"🩺 DEBUG organismo desconocido para {codigo}. Claves del detalle: {list(detalle.keys())}")
 
     return {
         "id": codigo,
@@ -179,30 +151,22 @@ def _mapear_licitacion(lic_basico, detalle):
         "monto_estimado": monto_estimado,
         "moneda": moneda,
         "monto_formateado": _formatear_monto(monto_estimado, moneda),
-        "requiere_garantia_seriedad": requiere_garantia_seriedad,
-        "monto_garantia_seriedad": monto_garantia_seriedad,
-        "requiere_garantia_fiel_cumplimiento": requiere_garantia_fiel,
-        "monto_garantia_fiel_cumplimiento": monto_garantia_fiel,
+        "requiere_garantia_seriedad": None,
+        "monto_garantia_seriedad": None,
+        "requiere_garantia_fiel_cumplimiento": None,
+        "monto_garantia_fiel_cumplimiento": None,
     }
 
 
 def procesar_y_guardar_licitaciones():
-    """
-    1) Trae el listado básico del día.
-    2) Prefiltra por nombre (barato) para no gastar cuota de API en detalle.
-    3) Para cada candidata, pide el detalle completo (organismo, descripción, montos, garantías).
-    4) Clasifica con el texto completo (nombre + descripción reales).
-    5) Descarta las que YA cerraron (no son oportunidad real de oferta).
-    6) Guarda en Mongo SOLO si matchea alguna categoría (Coimsa/Induwork/Especial).
-    """
     licitaciones_crudas = obtener_licitaciones_api_real()
     nuevas_relevantes = []
 
     if not licitaciones_crudas:
         return nuevas_relevantes
 
-    candidatas = [lic for lic in licitaciones_crudas if posible_relevante(lic.get("Nombre", ""))]
-    print(f"🔍 {len(candidatas)} de {len(licitaciones_crudas)} pasaron el prefiltro por nombre. Pidiendo detalle...")
+    candidatas = licitaciones_crudas
+    print(f"🔍 Procesando {len(candidatas)} licitaciones...")
 
     ahora = datetime.datetime.now(CL_TZ).replace(tzinfo=None)
 
@@ -212,19 +176,43 @@ def procesar_y_guardar_licitaciones():
             continue
 
         detalle = obtener_detalle_licitacion(codigo)
+        if not detalle:
+            print(f"⚠️ No se pudo obtener detalle de {codigo}, se omite.")
+            continue
+
         licitacion_mapeada = _mapear_licitacion(lic, detalle)
 
-        # Descartar licitaciones cuyo cierre ya pasó: no es una oportunidad real, es historial.
+        # Descartar si ya cerró
         fecha_cierre_dt = _parsear_fecha(licitacion_mapeada["fecha_cierre"])
         if fecha_cierre_dt and fecha_cierre_dt < ahora:
             print(f"⏭️ {codigo} ya cerró ({licitacion_mapeada['fecha_cierre']}), se descarta.")
             continue
 
+        # --- CLASIFICACIÓN CON FILTRO DE KEYWORDS ---
         clasificacion = evaluar_licitacion(licitacion_mapeada)
 
+        # Si NO clasifica con el filtro, preguntar a Gemini
         if not (clasificacion["coimsa"] or clasificacion["induwork"] or clasificacion["especial"]):
-            continue  # no matchea de verdad con el texto completo -> no se guarda, no se envía
+            texto = licitacion_mapeada.get("nombre", "").lower() + " " + licitacion_mapeada.get("descripcion", "").lower()
+            palabras_clave_para_ia = ["seguridad", "proteccion", "protección", "vigilancia", "cámara", "camara", "cctv", "alarma", "cascos", "chaleco"]
+            if any(p in texto for p in palabras_clave_para_ia):
+                print(f"🔎 {codigo} no clasificó por keywords. Consultando a Gemini...")
+                clasificacion_ia = clasificar_con_gemini(
+                    licitacion_mapeada.get("nombre", ""),
+                    licitacion_mapeada.get("descripcion", "")
+                )
+                if clasificacion_ia["coimsa"] or clasificacion_ia["induwork"] or clasificacion_ia["especial"]:
+                    categoria = next((k for k, v in clasificacion_ia.items() if v), "ninguna")
+                    print(f"🤖 Gemini dice que {codigo} es relevante para {categoria}")
+                    clasificacion = clasificacion_ia
+                else:
+                    print(f"⏭️ {codigo} no clasifica (ni por keywords ni por IA).")
+                    continue
+            else:
+                print(f"⏭️ {codigo} no clasifica por keywords y no contiene palabras clave para IA.")
+                continue
 
+        # Si clasifica (por keywords o por IA), guardar
         licitacion_mapeada["clasificacion"] = clasificacion
         licitacion_mapeada["fecha_captura"] = datetime.datetime.utcnow()
 
@@ -244,15 +232,6 @@ def procesar_y_guardar_licitaciones():
 
 
 def simular_scraping_compra_agil_urgente():
-    """
-    Monitoreo rápido (cada 30 minutos).
-
-    IMPORTANTE: antes esto consultaba estado='proveedor_seleccionado' (procesos YA
-    resueltos, con proveedor elegido) — eso hacía que compras ágiles ya adjudicadas
-    hace semanas aparecieran como "nueva oportunidad". Se corrigió para consultar
-    estado='publicada' (todavía abiertas, aceptando cotizaciones) y solo avisar de
-    las que cierran dentro de las próximas HORAS_URGENTE_COMPRA_AGIL horas.
-    """
     if not TICKET:
         print("❌ Error: No se ha configurado CHILECOMPRA_TICKET para Compra Ágil v2.")
         return []
@@ -300,11 +279,9 @@ def simular_scraping_compra_agil_urgente():
             fecha_cierre_dt = _parsear_fecha(fecha_cierre_str)
 
             if not fecha_cierre_dt:
-                continue  # sin fecha de cierre confiable, no podemos saber si es "urgente"
+                continue
 
             horas_restantes = (fecha_cierre_dt - ahora).total_seconds() / 3600
-
-            # Ya cerró, o falta demasiado tiempo todavía: no es "urgente" aún.
             if horas_restantes <= 0 or horas_restantes > HORAS_URGENTE_COMPRA_AGIL:
                 continue
 
@@ -320,11 +297,20 @@ def simular_scraping_compra_agil_urgente():
                 "monto_estimado": detalle.get("monto_estimado") or item.get("monto_estimado"),
                 "moneda": detalle.get("moneda", "CLP"),
                 "monto_formateado": _formatear_monto(detalle.get("monto_estimado") or item.get("monto_estimado"), detalle.get("moneda", "CLP")),
-                "requiere_garantia_seriedad": False,  # Compra Ágil generalmente no exige garantías
+                "requiere_garantia_seriedad": False,
                 "requiere_garantia_fiel_cumplimiento": False,
             }
 
             clasificacion = evaluar_licitacion(compra_mapeada)
+
+            # Si no clasifica, usar IA
+            if not (clasificacion["coimsa"] or clasificacion["induwork"] or clasificacion["especial"]):
+                clasificacion_ia = clasificar_con_gemini(
+                    compra_mapeada.get("nombre", ""),
+                    compra_mapeada.get("descripcion", "")
+                )
+                if clasificacion_ia["coimsa"] or clasificacion_ia["induwork"] or clasificacion_ia["especial"]:
+                    clasificacion = clasificacion_ia
 
             if clasificacion["coimsa"] or clasificacion["induwork"] or clasificacion["especial"]:
                 compra_mapeada["clasificacion"] = clasificacion
@@ -349,15 +335,7 @@ def simular_scraping_compra_agil_urgente():
         return []
 
 
-# ============================================================
-#  CONSULTAS SOBRE LO YA ALMACENADO (para reportes y reenvíos)
-# ============================================================
-
 def obtener_almacenadas(desde=None, hasta=None):
-    """
-    Devuelve todo lo guardado en Mongo entre 'desde' y 'hasta' (datetime UTC naive,
-    igual formato que fecha_captura). Si no se pasan fechas, devuelve TODO.
-    """
     if db is None:
         return []
 
@@ -376,7 +354,6 @@ def obtener_almacenadas(desde=None, hasta=None):
 
 
 def agrupar_por_empresa(documentos):
-    """Separa una lista de licitaciones/compras ágiles en coimsa / induwork / especial."""
     coimsa = [d for d in documentos if d.get("clasificacion", {}).get("coimsa")]
     induwork = [d for d in documentos if d.get("clasificacion", {}).get("induwork")]
     especial = [d for d in documentos if d.get("clasificacion", {}).get("especial")]
@@ -384,7 +361,31 @@ def agrupar_por_empresa(documentos):
 
 
 def contar_por_tipo(documentos):
-    """Cuenta cuántas son 'Licitación' vs 'Compra Ágil' dentro de una lista."""
     licitaciones = sum(1 for d in documentos if d.get("tipo") == "Licitación")
     compras_agiles = sum(1 for d in documentos if d.get("tipo") == "Compra Ágil")
     return {"licitaciones": licitaciones, "compras_agiles": compras_agiles}
+
+
+def limpiar_licitaciones_no_clasificadas():
+    """
+    Elimina de la base de datos todas las licitaciones que, con los filtros actuales,
+    ya no clasifican en ninguna categoría.
+    """
+    if db is None:
+        print("❌ No hay conexión a la base de datos.")
+        return
+
+    todas = list(db.licitaciones.find({}, {"_id": 1, "id": 1, "nombre": 1, "descripcion": 1, "region": 1}))
+    eliminados = 0
+    for doc in todas:
+        lic_temp = {
+            "nombre": doc.get("nombre", ""),
+            "descripcion": doc.get("descripcion", ""),
+            "region": doc.get("region", "")
+        }
+        clasif = evaluar_licitacion(lic_temp)
+        if not (clasif["coimsa"] or clasif["induwork"] or clasif["especial"]):
+            db.licitaciones.delete_one({"_id": doc["_id"]})
+            eliminados += 1
+            print(f"🗑️ Eliminada licitación {doc.get('id', 'sin_id')} porque ya no clasifica.")
+    print(f"✅ Limpieza completada: {eliminados} registros eliminados.")
