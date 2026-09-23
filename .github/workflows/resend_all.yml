@@ -27,4 +27,10 @@ jobs:
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
           SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
-        run: python run_cron.py resend-all
+
+          DEST_INDUWORK: ${{ secrets.DEST_INDUWORK }}
+          DEST_COIMSA: ${{ secrets.DEST_COIMSA }}
+          DEST_ESPECIAL: ${{ secrets.DEST_ESPECIAL }}
+
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python -u run_cron.py resend-all
