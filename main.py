@@ -66,29 +66,92 @@ def tarea_fast_check_compra_agil():
 
 
 def tarea_reporte_diario():
-    hora_local = datetime.now(CL_TZ).strftime("%H:%M")
-    print(f"📋 Reporte Diario ({hora_local} hora Chile)")
+    hora_local = datetime.now(
+        CL_TZ
+    ).strftime("%H:%M")
 
-    nuevas = procesar_y_guardar_licitaciones()
-    if not nuevas:
-        print("ℹ️ No hay nuevas licitaciones para el reporte diario.")
+    print(
+        f"📋 Reporte Diario "
+        f"({hora_local} hora Chile)"
+    )
+
+    resultado = (
+        procesar_y_guardar_licitaciones()
+    )
+
+    nuevas = resultado["nuevas"]
+
+    activas_anteriores = (
+        resultado["activas_anteriores"]
+    )
+
+    print(
+        f"📊 Resumen diario: "
+        f"{len(nuevas)} nuevas | "
+        f"{len(activas_anteriores)} "
+        "activas anteriores"
+    )
+
+    if not nuevas and not activas_anteriores:
+        print(
+            "ℹ️ No se encontraron nuevas "
+            "licitaciones ni oportunidades "
+            "anteriores todavía activas."
+        )
         return
 
-    _enviar_por_categoria(nuevas, hora_local, "📋 Nuevas Oportunidades")
-    print("📨 Correo(s) diario(s) enviado(s).")
+    grupos_nuevas = agrupar_por_empresa(
+        nuevas
+    )
 
+    grupos_anteriores = agrupar_por_empresa(
+        activas_anteriores
+    )
 
-def _armar_cuerpo_resumen(nombre_categoria, items, dias_texto):
-    from modules.scraper import contar_por_tipo
-    conteo = contar_por_tipo(items)
-    return f"""
-    <p>Resumen de <b>{nombre_categoria}</b> — {dias_texto}:</p>
-    <ul>
-        <li><b>{conteo['licitaciones']}</b> licitaciones nuevas</li>
-        <li><b>{conteo['compras_agiles']}</b> compras ágiles nuevas</li>
-        <li><b>{len(items)}</b> oportunidades en total</li>
-    </ul>
-    """
+    for categoria in (
+        "coimsa",
+        "induwork",
+        "especial",
+    ):
+        nuevas_categoria = grupos_nuevas[
+            categoria
+        ]
+
+        anteriores_categoria = grupos_anteriores[
+            categoria
+        ]
+
+        if (
+            not nuevas_categoria
+            and not anteriores_categoria
+        ):
+            continue
+
+        nombre_categoria = {
+            "coimsa": "COIMSA",
+            "induwork": "INDUWORK",
+            "especial": "SOCIALES/MVI",
+        }[categoria]
+
+        enviar_correo_categoria(
+            categoria,
+            (
+                f"📋 Oportunidades {nombre_categoria}"
+                f" - {hora_local}"
+            ),
+            nuevas_categoria
+            + anteriores_categoria,
+            nuevas_licitaciones=(
+                nuevas_categoria
+            ),
+            activas_anteriores=(
+                anteriores_categoria
+            ),
+        )
+
+    print(
+        "📨 Reporte diario enviado."
+    )
 
 
 def _reporte_periodo(desde, hasta, hora_local, prefijo_asunto, dias_texto):
@@ -237,5 +300,17 @@ def test_fast_check_now():
 
 @app.get("/cron/test-daily-report-now")
 def test_daily_report_now():
-    nuevas = procesar_y_guardar_licitaciones()
-    return {"licitaciones_nuevas": len(nuevas)}
+    resultado = (
+        procesar_y_guardar_licitaciones()
+    )
+
+    return {
+        "nuevas": len(
+            resultado["nuevas"]
+        ),
+        "activas_anteriores": len(
+            resultado[
+                "activas_anteriores"
+            ]
+        ),
+    }

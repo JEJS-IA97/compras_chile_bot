@@ -1,11 +1,18 @@
 KEYWORDS_COIMSA = [
-    "limpieza", "aseo", "sanitizacion", "sanitización",
-    "fumigacion", "fumigación", "desinfeccion", "desinfección",
+    "limpieza",
+    "aseo",
+    "sanitizacion",
+    "sanitización",
+    "fumigacion",
+    "fumigación",
+    "desinfeccion",
+    "desinfección",
 ]
 
-# Términos usados por Induwork para la búsqueda manual diaria.
-# Se evita agregar términos genéricos como "seguridad", "vigilancia",
-# "sistema", "equipo", "alarma" o "cámara" porque generan falsos positivos.
+# ============================================================
+# BÚSQUEDAS MANUALES DE INDUWORK
+# ============================================================
+
 KEYWORDS_INDUWORK = [
     "anticorte",
     "anticortes",
@@ -37,31 +44,132 @@ KEYWORDS_INDUWORK = [
     "balísticas",
 ]
 
+# ============================================================
+# PALABRAS CLAVE ESPECIALES
+# ============================================================
+
 KEYWORDS_ESPECIALES = [
-    "actividad social", "proyecto social", "programa social",
-    "desarrollo informatico", "desarrollo informático",
+    "actividad social",
+    "proyecto social",
+    "programa social",
+    "desarrollo informatico",
+    "desarrollo informático",
 ]
 
-TODAS_LAS_KEYWORDS = KEYWORDS_COIMSA + KEYWORDS_INDUWORK + KEYWORDS_ESPECIALES
+# ============================================================
+# TODAS LAS KEYWORDS
+# ============================================================
 
+TODAS_LAS_KEYWORDS = (
+    KEYWORDS_COIMSA
+    + KEYWORDS_INDUWORK
+    + KEYWORDS_ESPECIALES
+)
+
+
+# ============================================================
+# INDUWORK
+# ============================================================
 
 def contiene_keyword_induwork(texto: str) -> bool:
-    """Detecta coincidencias con las búsquedas manuales de Induwork."""
-    texto = (texto or "").lower()
-    return any(kw in texto for kw in KEYWORDS_INDUWORK)
+    """
+    Determina si el texto contiene alguna de las
+    28 búsquedas manuales de Induwork.
+    """
 
+    texto = (texto or "").lower()
+
+    return any(
+        keyword in texto
+        for keyword in KEYWORDS_INDUWORK
+    )
+
+
+def keywords_induwork_detectadas(texto: str) -> list:
+    """
+    Devuelve todas las keywords de Induwork
+    que aparecen dentro del texto.
+    """
+
+    texto = (texto or "").lower()
+
+    return [
+        keyword
+        for keyword in KEYWORDS_INDUWORK
+        if keyword in texto
+    ]
+
+
+# ============================================================
+# PREFILTRO GENERAL
+# ============================================================
 
 def posible_relevante(texto: str) -> bool:
-    """Prefiltro rápido para evitar detalles de licitaciones irrelevantes."""
-    texto = (texto or "").lower()
-    return any(kw in texto for kw in TODAS_LAS_KEYWORDS)
+    """
+    Prefiltro rápido.
 
+    Determina si una licitación contiene alguna palabra
+    relacionada con cualquiera de las categorías.
+    """
+
+    texto = (texto or "").lower()
+
+    return any(
+        keyword in texto
+        for keyword in TODAS_LAS_KEYWORDS
+    )
+
+
+# ============================================================
+# EVALUACIÓN DE LICITACIÓN
+# ============================================================
 
 def evaluar_licitacion(licitacion: dict) -> dict:
-    nombre = licitacion.get("nombre", "").lower()
-    descripcion = licitacion.get("descripcion", "").lower()
-    region = licitacion.get("region", "").lower()
-    texto = f"{nombre} {descripcion}"
+    """
+    Evalúa una licitación utilizando las reglas
+    de cada empresa.
+
+    Induwork:
+        Solo utiliza las 28 búsquedas manuales.
+
+    Coimsa:
+        Mantiene sus palabras actuales.
+
+    Especial:
+        Mantiene sus palabras actuales.
+    """
+
+    nombre = (
+        licitacion.get(
+            "nombre",
+            "",
+        )
+        or ""
+    ).lower()
+
+    descripcion = (
+        licitacion.get(
+            "descripcion",
+            "",
+        )
+        or ""
+    ).lower()
+
+    region = (
+        licitacion.get(
+            "region",
+            "",
+        )
+        or ""
+    ).lower()
+
+    texto = (
+        f"{nombre} {descripcion}"
+    )
+
+    # ========================================================
+    # COIMSA
+    # ========================================================
 
     es_rm = (
         "metropolitana" in region
@@ -69,9 +177,34 @@ def evaluar_licitacion(licitacion: dict) -> dict:
         or region.strip() == "rm"
     )
 
-    coimsa = es_rm and any(k in texto for k in KEYWORDS_COIMSA)
-    induwork = contiene_keyword_induwork(texto)
-    especial = any(k in texto for k in KEYWORDS_ESPECIALES)
+    coimsa = (
+        es_rm
+        and any(
+            keyword in texto
+            for keyword in KEYWORDS_COIMSA
+        )
+    )
+
+    # ========================================================
+    # INDUWORK
+    # ========================================================
+
+    induwork = contiene_keyword_induwork(
+        texto
+    )
+
+    # ========================================================
+    # ESPECIAL
+    # ========================================================
+
+    especial = any(
+        keyword in texto
+        for keyword in KEYWORDS_ESPECIALES
+    )
+
+    # ========================================================
+    # RESULTADO
+    # ========================================================
 
     return {
         "coimsa": coimsa,

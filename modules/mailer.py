@@ -49,6 +49,8 @@ def enviar_correo_categoria(
     es_alerta_urgente: bool = False,
     cuerpo_extra_html: str = "",
     destinatario_override: str = None,
+    nuevas_licitaciones: list = None,
+    activas_anteriores: list = None,
 ) -> bool:
     """
     Envía un correo con la plantilla dinámica correspondiente a la categoría.
@@ -73,6 +75,8 @@ def enviar_correo_categoria(
         licitaciones=licitaciones,
         es_alerta_urgente=es_alerta_urgente,
         cuerpo_extra_html=cuerpo_extra_html,
+        nuevas_licitaciones=nuevas_licitaciones,
+        activas_anteriores=activas_anteriores,
     )
 
     msg = MIMEMultipart("related")
