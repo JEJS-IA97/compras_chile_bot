@@ -1,29 +1,54 @@
 # modules/scraper.py
 
 import os
+import re
 import time
 import datetime
+
 from zoneinfo import ZoneInfo
 
 import requests
 
 from config.database import get_db
+
 from modules.filters import (
     evaluar_licitacion,
     posible_relevante,
     contiene_keyword_induwork,
     keywords_induwork_detectadas,
 )
-from modules.ai_classifier import clasificar_con_gemini
+
+from modules.ai_classifier import (
+    clasificar_con_gemini,
+)
 
 
-CL_TZ = ZoneInfo("America/Santiago")
+# ============================================================
+# CONFIGURACIÓN
+# ============================================================
+
+CL_TZ = ZoneInfo(
+    "America/Santiago"
+)
+
+UTC_TZ = ZoneInfo(
+    "UTC"
+)
 
 db = get_db()
-TICKET = os.getenv("CHILECOMPRA_TICKET")
+
+TICKET = os.getenv(
+    "CHILECOMPRA_TICKET"
+)
+
+
+# ============================================================
+# API LICITACIONES V1
+# ============================================================
 
 BASE_URL_V1 = (
-    "https://api.mercadopublico.cl/servicios/v1/publico"
+    "https://api.mercadopublico.cl/"
+    "servicios/v1/publico"
 )
 
 HEADERS_V1 = {
@@ -34,21 +59,30 @@ HEADERS_V1 = {
     "Accept": "application/json",
 }
 
+
+# ============================================================
+# API COMPRA ÁGIL V2
+# ============================================================
+
+BASE_URL_V2 = (
+    "https://api2.mercadopublico.cl"
+)
+
+ENDPOINT_COMPRA_AGIL = (
+    f"{BASE_URL_V2}/v2/compra-agil"
+)
+
+
+# ============================================================
+# PARÁMETROS
+# ============================================================
+
 HORAS_URGENTE_COMPRA_AGIL = 72
 
-# ============================================================
-# CONTROL DE PETICIONES
-# ============================================================
-
-# Tiempo mínimo entre consultas de detalle.
-# Evita disparar demasiadas solicitudes consecutivas.
 DETAIL_REQUEST_DELAY = 1.0
 
-# Cantidad máxima de reintentos cuando Mercado Público
-# responde HTTP 429.
 MAX_RETRIES_429 = 3
 
-# Esperas progresivas ante 429.
 BACKOFF_429 = (
     3,
     8,
@@ -56,7 +90,26 @@ BACKOFF_429 = (
 )
 
 
-def _url_licitacion(codigo):
+# ============================================================
+# RECUPERACIÓN COMPRA ÁGIL
+# ============================================================
+
+# Recuperamos oportunidades publicadas durante los
+# últimos 14 días además del mecanismo incremental.
+#
+# Esto evita depender exclusivamente de ttl_cambio_ms,
+# porque una Compra Ágil puede haberse publicado hace varios
+# días y seguir abierta hoy.
+COMPRA_AGIL_DIAS_RECUPERACION = 14
+
+
+# ============================================================
+# UTILIDADES
+# ============================================================
+
+def _url_licitacion(
+    codigo,
+):
     return (
         "https://www.mercadopublico.cl/"
         "Procurement/Modules/RFB/"
@@ -64,7 +117,9 @@ def _url_licitacion(codigo):
     )
 
 
-def _parsear_fecha(valor):
+def _parsear_fecha(
+    valor,
+):
     if not valor:
         return None
 
@@ -72,11 +127,28 @@ def _parsear_fecha(valor):
         valor,
         datetime.datetime,
     ):
-        return valor.replace(
-            tzinfo=None
-        )
 
-    if not isinstance(valor, str):
+        fecha = valor
+
+        if fecha.tzinfo is not None:
+
+            fecha = fecha.astimezone(
+                CL_TZ
+            ).replace(
+                tzinfo=None
+            )
+
+        return fecha
+
+    if not isinstance(
+        valor,
+        str,
+    ):
+        return None
+
+    valor = valor.strip()
+
+    if not valor:
         return None
 
     formatos = (
@@ -87,16 +159,21 @@ def _parsear_fecha(valor):
         "%d/%m/%Y %H:%M",
     )
 
-    for fmt in formatos:
+    for formato in formatos:
+
         try:
+
             return datetime.datetime.strptime(
                 valor,
-                fmt,
+                formato,
             )
+
         except ValueError:
+
             continue
 
     try:
+
         fecha = datetime.datetime.fromisoformat(
             valor.replace(
                 "Z",
@@ -105,13 +182,17 @@ def _parsear_fecha(valor):
         )
 
         if fecha.tzinfo is not None:
+
             fecha = fecha.astimezone(
                 CL_TZ
-            ).replace(tzinfo=None)
+            ).replace(
+                tzinfo=None
+            )
 
         return fecha
 
     except ValueError:
+
         return None
 
 
@@ -119,24 +200,31 @@ def _formatear_monto(
     monto,
     moneda,
 ):
+
     if monto in (
         None,
         "",
         0,
     ):
+
         return "No especificado"
 
     try:
+
         return (
             f"{moneda or 'CLP'} "
             f"{float(monto):,.0f}"
-            .replace(",", ".")
+            .replace(
+                ",",
+                ".",
+            )
         )
 
     except (
         ValueError,
         TypeError,
     ):
+
         return (
             f"{moneda or ''} "
             f"{monto}"
@@ -144,8 +232,18 @@ def _formatear_monto(
 
 
 def _ahora_utc_naive():
+
     return datetime.datetime.now(
         datetime.timezone.utc
+    ).replace(
+        tzinfo=None
+    )
+
+
+def _ahora_chile_naive():
+
+    return datetime.datetime.now(
+        CL_TZ
     ).replace(
         tzinfo=None
     )
@@ -154,10 +252,6 @@ def _ahora_utc_naive():
 def _es_fecha_de_hoy_chile(
     valor,
 ):
-    """
-    Determina si una fecha UTC/naive corresponde
-    al día actual en Chile.
-    """
 
     if not valor:
         return False
@@ -171,6 +265,7 @@ def _es_fecha_de_hoy_chile(
     fecha = valor
 
     if fecha.tzinfo is None:
+
         fecha = fecha.replace(
             tzinfo=datetime.timezone.utc
         )
@@ -189,11 +284,12 @@ def _es_fecha_de_hoy_chile(
     )
 
 
+# ============================================================
+# DETALLE V1
+# ============================================================
+
 def _esperar_entre_detalles():
-    """
-    Pausa entre consultas de detalle para
-    reducir riesgo de HTTP 429.
-    """
+
     time.sleep(
         DETAIL_REQUEST_DELAY
     )
@@ -207,13 +303,6 @@ def _get_con_reintento_429(
     timeout=30,
     es_detalle=False,
 ):
-    """
-    Realiza una solicitud GET y reintenta cuando
-    Mercado Público responde 429.
-
-    Si es una consulta de detalle, mantiene una pausa
-    antes de cada solicitud para evitar ráfagas.
-    """
 
     for intento in range(
         MAX_RETRIES_429 + 1
@@ -223,6 +312,7 @@ def _get_con_reintento_429(
             _esperar_entre_detalles()
 
         try:
+
             response = requests.get(
                 url,
                 params=params,
@@ -231,7 +321,9 @@ def _get_con_reintento_429(
             )
 
         except requests.exceptions.Timeout:
+
             if intento >= MAX_RETRIES_429:
+
                 raise
 
             espera = BACKOFF_429[
@@ -242,20 +334,26 @@ def _get_con_reintento_429(
             ]
 
             print(
-                f"⚠️ Timeout. Reintentando "
-                f"en {espera}s..."
+                f"⚠️ Timeout. "
+                f"Reintentando en {espera}s..."
             )
 
-            time.sleep(espera)
+            time.sleep(
+                espera
+            )
+
             continue
 
         except requests.exceptions.RequestException:
+
             raise
 
         if response.status_code != 429:
+
             return response
 
         if intento >= MAX_RETRIES_429:
+
             return response
 
         retry_after = (
@@ -265,7 +363,9 @@ def _get_con_reintento_429(
         )
 
         if retry_after:
+
             try:
+
                 espera = max(
                     float(retry_after),
                     BACKOFF_429[
@@ -275,14 +375,18 @@ def _get_con_reintento_429(
                         )
                     ],
                 )
+
             except ValueError:
+
                 espera = BACKOFF_429[
                     min(
                         intento,
                         len(BACKOFF_429) - 1,
                     )
                 ]
+
         else:
+
             espera = BACKOFF_429[
                 min(
                     intento,
@@ -292,27 +396,32 @@ def _get_con_reintento_429(
 
         print(
             f"⚠️ Mercado Público respondió "
-            f"HTTP 429. "
-            f"Reintento {intento + 1}/"
+            f"HTTP 429. Reintento "
+            f"{intento + 1}/"
             f"{MAX_RETRIES_429} "
             f"en {espera}s..."
         )
 
-        time.sleep(espera)
+        time.sleep(
+            espera
+        )
 
     return response
 
 
+# ============================================================
+# OBTENER LICITACIONES ACTIVAS
+# ============================================================
+
 def obtener_licitaciones_api_real():
-    """
-    Obtiene TODAS las licitaciones actualmente activas.
-    """
 
     if not TICKET:
+
         print(
             "❌ Error: No se ha configurado "
             "CHILECOMPRA_TICKET."
         )
+
         return []
 
     url = (
@@ -325,6 +434,7 @@ def obtener_licitaciones_api_real():
     }
 
     try:
+
         print(
             "📡 Consultando TODAS las "
             "licitaciones activas actualmente "
@@ -342,7 +452,10 @@ def obtener_licitaciones_api_real():
 
             listado = (
                 response.json()
-                .get("Listado", [])
+                .get(
+                    "Listado",
+                    [],
+                )
             )
 
             print(
@@ -355,7 +468,7 @@ def obtener_licitaciones_api_real():
             return listado
 
         print(
-            f"⚠️ Error Mercado Público: "
+            "⚠️ Error Mercado Público: "
             f"HTTP {response.status_code} - "
             f"{response.text[:500]}"
         )
@@ -363,36 +476,40 @@ def obtener_licitaciones_api_real():
         return []
 
     except requests.exceptions.Timeout:
+
         print(
             "❌ Timeout consultando "
             "licitaciones activas."
         )
+
         return []
 
     except requests.exceptions.RequestException as e:
+
         print(
             f"❌ Error HTTP consultando "
             f"Mercado Público: {e}"
         )
+
         return []
 
     except Exception as e:
+
         print(
             f"❌ Error inesperado consultando "
             f"Mercado Público: {e}"
         )
+
         return []
 
+
+# ============================================================
+# DETALLE LICITACIÓN
+# ============================================================
 
 def obtener_detalle_licitacion(
     codigo,
 ):
-    """
-    Obtiene el detalle de una licitación
-    por código.
-
-    Incluye control de HTTP 429.
-    """
 
     url = (
         f"{BASE_URL_V1}/licitaciones.json"
@@ -404,6 +521,7 @@ def obtener_detalle_licitacion(
     }
 
     try:
+
         response = _get_con_reintento_429(
             url,
             params=params,
@@ -416,7 +534,7 @@ def obtener_detalle_licitacion(
 
             print(
                 f"⚠️ Detalle {codigo} "
-                f"respondió HTTP "
+                "respondió HTTP "
                 f"{response.status_code}"
             )
 
@@ -424,7 +542,10 @@ def obtener_detalle_licitacion(
 
         listado = (
             response.json()
-            .get("Listado", [])
+            .get(
+                "Listado",
+                [],
+            )
         )
 
         return (
@@ -434,35 +555,361 @@ def obtener_detalle_licitacion(
         )
 
     except requests.exceptions.Timeout:
+
         print(
             f"⚠️ Timeout obteniendo "
             f"detalle de {codigo}."
         )
+
         return {}
 
     except requests.exceptions.RequestException as e:
+
         print(
             f"⚠️ Error HTTP obteniendo "
             f"detalle de {codigo}: {e}"
         )
+
         return {}
 
     except Exception as e:
+
         print(
             f"⚠️ No se pudo obtener "
             f"detalle de {codigo}: {e}"
         )
+
         return {}
 
+
+# ============================================================
+# PRODUCTOS LICITACIÓN V1
+# ============================================================
+
+def _extraer_items_licitacion(
+    detalle,
+):
+
+    if not isinstance(
+        detalle,
+        dict,
+    ):
+
+        return []
+
+    items_container = (
+        detalle.get(
+            "Items"
+        )
+        or detalle.get(
+            "items"
+        )
+        or {}
+    )
+
+    if not isinstance(
+        items_container,
+        dict,
+    ):
+
+        return []
+
+    listado = (
+        items_container.get(
+            "Listado"
+        )
+        or items_container.get(
+            "listado"
+        )
+        or {}
+    )
+
+    if not isinstance(
+        listado,
+        dict,
+    ):
+
+        return []
+
+    items = (
+        listado.get(
+            "item"
+        )
+        or listado.get(
+            "Item"
+        )
+        or []
+    )
+
+    if isinstance(
+        items,
+        dict,
+    ):
+
+        items = [
+            items
+        ]
+
+    if not isinstance(
+        items,
+        list,
+    ):
+
+        return []
+
+    productos = []
+
+    for item in items:
+
+        if not isinstance(
+            item,
+            dict,
+        ):
+
+            continue
+
+        nombre = (
+            item.get(
+                "NombreProducto"
+            )
+            or item.get(
+                "nombre"
+            )
+            or item.get(
+                "Nombre"
+            )
+            or ""
+        )
+
+        descripcion = (
+            item.get(
+                "Descripcion"
+            )
+            or item.get(
+                "descripcion"
+            )
+            or ""
+        )
+
+        categoria = (
+            item.get(
+                "Categoria"
+            )
+            or item.get(
+                "categoria"
+            )
+            or ""
+        )
+
+        codigo_producto = (
+            item.get(
+                "CodigoProducto"
+            )
+            or item.get(
+                "codigo_producto"
+            )
+            or ""
+        )
+
+        cantidad = (
+            item.get(
+                "Cantidad"
+            )
+            or item.get(
+                "cantidad"
+            )
+        )
+
+        unidad_medida = (
+            item.get(
+                "UnidadMedida"
+            )
+            or item.get(
+                "unidad_medida"
+            )
+            or ""
+        )
+
+        producto = {
+            "codigo_producto": codigo_producto,
+            "nombre": nombre,
+            "descripcion": descripcion,
+            "categoria": categoria,
+            "cantidad": cantidad,
+            "unidad_medida": unidad_medida,
+        }
+
+        if any(
+            (
+                nombre,
+                descripcion,
+                categoria,
+                codigo_producto,
+            )
+        ):
+
+            productos.append(
+                producto
+            )
+
+    return productos
+
+
+def _texto_productos(
+    productos,
+):
+
+    partes = []
+
+    for producto in productos:
+
+        partes.extend(
+            [
+                producto.get(
+                    "nombre",
+                    "",
+                ),
+                producto.get(
+                    "descripcion",
+                    "",
+                ),
+                producto.get(
+                    "categoria",
+                    "",
+                ),
+            ]
+        )
+
+    return " ".join(
+        str(parte)
+        for parte in partes
+        if parte
+    ).strip()
+
+
+# ============================================================
+# MONTO DESDE TEXTO
+# ============================================================
+
+def _extraer_monto_desde_texto(
+    texto,
+):
+
+    if not texto:
+        return None
+
+    patrones = (
+
+        r"\$\s*"
+        r"([0-9]{1,3}"
+        r"(?:\.[0-9]{3})+"
+        r"(?:,[0-9]+)?)",
+
+        r"(?i)"
+        r"(?:presupuesto|monto|"
+        r"valor|presupuesto máximo|"
+        r"monto máximo)"
+        r"[^0-9]{0,80}"
+        r"([0-9]{1,3}"
+        r"(?:\.[0-9]{3})+"
+        r"(?:,[0-9]+)?)",
+    )
+
+    for patron in patrones:
+
+        match = re.search(
+            patron,
+            str(texto),
+        )
+
+        if not match:
+            continue
+
+        valor = match.group(
+            1
+        )
+
+        try:
+
+            valor = (
+                valor
+                .replace(
+                    ".",
+                    "",
+                )
+                .replace(
+                    ",",
+                    ".",
+                )
+            )
+
+            return float(
+                valor
+            )
+
+        except (
+            ValueError,
+            TypeError,
+        ):
+
+            continue
+
+    return None
+
+
+def _extraer_monto_licitacion(
+    detalle,
+    lic_basico,
+    texto_contexto,
+):
+
+    candidatos = (
+        detalle.get(
+            "MontoEstimado"
+        ),
+        detalle.get(
+            "Monto"
+        ),
+        lic_basico.get(
+            "MontoEstimado"
+        ),
+        lic_basico.get(
+            "Monto"
+        ),
+    )
+
+    monto = next(
+        (
+            valor
+            for valor in candidatos
+            if valor not in (
+                None,
+                "",
+                0,
+            )
+        ),
+        None,
+    )
+
+    if monto is None:
+
+        monto = (
+            _extraer_monto_desde_texto(
+                texto_contexto
+            )
+        )
+
+    return monto
+
+
+# ============================================================
+# MAPEO LICITACIÓN
+# ============================================================
 
 def _mapear_licitacion(
     lic_basico,
     detalle,
 ):
-    """
-    Une los datos básicos de la consulta de activas
-    con el detalle completo de la licitación.
-    """
 
     codigo = (
         lic_basico.get(
@@ -528,6 +975,18 @@ def _mapear_licitacion(
         )
     )
 
+    productos = (
+        _extraer_items_licitacion(
+            detalle
+        )
+    )
+
+    texto_productos = (
+        _texto_productos(
+            productos
+        )
+    )
+
     fecha_cierre = (
         fechas.get(
             "FechaCierre"
@@ -555,15 +1014,18 @@ def _mapear_licitacion(
         or "Sin fecha"
     )
 
+    texto_contexto = (
+        f"{detalle.get('Nombre', '')} "
+        f"{lic_basico.get('Nombre', '')} "
+        f"{descripcion} "
+        f"{texto_productos}"
+    )
+
     monto_estimado = (
-        detalle.get(
-            "MontoEstimado"
-        )
-        or detalle.get(
-            "Monto"
-        )
-        or lic_basico.get(
-            "MontoEstimado"
+        _extraer_monto_licitacion(
+            detalle,
+            lic_basico,
+            texto_contexto,
         )
     )
 
@@ -589,6 +1051,8 @@ def _mapear_licitacion(
             )
         ),
         "descripcion": descripcion,
+        "productos_solicitados": productos,
+        "texto_productos": texto_productos,
         "region": region,
         "organismo": organismo,
         "fecha_cierre": fecha_cierre,
@@ -605,6 +1069,14 @@ def _mapear_licitacion(
                 moneda,
             )
         ),
+        "visibilidad_monto": (
+            detalle.get(
+                "VisibilidadMonto"
+            )
+            or lic_basico.get(
+                "VisibilidadMonto"
+            )
+        ),
         "requiere_garantia_seriedad": None,
         "monto_garantia_seriedad": None,
         "requiere_garantia_fiel_cumplimiento": None,
@@ -612,10 +1084,16 @@ def _mapear_licitacion(
     }
 
 
+# ============================================================
+# DB
+# ============================================================
+
 def _obtener_existente(
     codigo,
 ):
+
     if db is None:
+
         return None
 
     return db[
@@ -632,9 +1110,10 @@ def _guardar_nueva(
     clasificacion,
     ahora_utc,
 ):
-    licitacion["clasificacion"] = (
-        clasificacion
-    )
+
+    licitacion[
+        "clasificacion"
+    ] = clasificacion
 
     licitacion[
         "fecha_captura"
@@ -653,9 +1132,11 @@ def _guardar_nueva(
     ] = True
 
     if db is None:
+
         return True
 
     try:
+
         db[
             "licitaciones"
         ].insert_one(
@@ -665,6 +1146,7 @@ def _guardar_nueva(
         return True
 
     except Exception as e:
+
         print(
             f"⚠️ No se pudo guardar "
             f"{licitacion.get('id')}: {e}"
@@ -680,10 +1162,6 @@ def _actualizar_existente(
     existente,
     ahora_utc,
 ):
-    """
-    Actualiza los datos actuales de una licitación
-    sin modificar su fecha de primera detección.
-    """
 
     fecha_primera = (
         existente.get(
@@ -705,6 +1183,7 @@ def _actualizar_existente(
     if existente.get(
         "validacion_ia_induwork"
     ):
+
         licitacion_actualizada[
             "validacion_ia_induwork"
         ] = existente[
@@ -762,21 +1241,11 @@ def _actualizar_existente(
     return licitacion_actualizada
 
 
+# ============================================================
+# PROCESAR LICITACIONES
+# ============================================================
+
 def procesar_y_guardar_licitaciones():
-    """
-    Busca todas las licitaciones activas.
-
-    Flujo:
-
-    1. Obtiene todas las activas.
-    2. Filtra las candidatas por keywords.
-    3. Obtiene detalle de cada candidata.
-    4. Valida Induwork con Gemini.
-    5. Si es nueva, la guarda y la retorna como nueva.
-    6. Si ya existía, actualiza sus datos pero no la
-       vuelve a considerar nueva.
-    7. Devuelve nuevas + activas anteriores.
-    """
 
     licitaciones_activas = (
         obtener_licitaciones_api_real()
@@ -788,11 +1257,8 @@ def procesar_y_guardar_licitaciones():
     }
 
     if not licitaciones_activas:
-        return resultado
 
-    # ========================================================
-    # PREFILTRO
-    # ========================================================
+        return resultado
 
     candidatas = []
 
@@ -806,27 +1272,25 @@ def procesar_y_guardar_licitaciones():
         if posible_relevante(
             texto_basico
         ):
-            candidatas.append(lic)
+
+            candidatas.append(
+                lic
+            )
 
     print(
-        f"🔍 {len(candidatas)} candidatas "
-        f"de {len(licitaciones_activas)} "
+        f"🔍 {len(candidatas)} "
+        f"candidatas de "
+        f"{len(licitaciones_activas)} "
         "licitaciones activas."
     )
 
     ahora_chile = (
-        datetime.datetime.now(
-            CL_TZ
-        ).replace(
-            tzinfo=None
-        )
+        _ahora_chile_naive()
     )
 
-    ahora_utc = _ahora_utc_naive()
-
-    # ========================================================
-    # PROCESAMIENTO DE CANDIDATAS
-    # ========================================================
+    ahora_utc = (
+        _ahora_utc_naive()
+    )
 
     for indice, lic in enumerate(
         candidatas,
@@ -841,7 +1305,7 @@ def procesar_y_guardar_licitaciones():
             continue
 
         print(
-            f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         )
 
         print(
@@ -849,10 +1313,6 @@ def procesar_y_guardar_licitaciones():
             f"{indice}/{len(candidatas)}: "
             f"{codigo}"
         )
-
-        # ====================================================
-        # DETALLE
-        # ====================================================
 
         detalle = (
             obtener_detalle_licitacion(
@@ -877,10 +1337,6 @@ def procesar_y_guardar_licitaciones():
             )
         )
 
-        # ====================================================
-        # FECHA DE CIERRE
-        # ====================================================
-
         fecha_cierre_dt = (
             _parsear_fecha(
                 licitacion_mapeada[
@@ -897,15 +1353,10 @@ def procesar_y_guardar_licitaciones():
 
             print(
                 f"⏭️ {codigo} ya cerró "
-                f"({licitacion_mapeada['fecha_cierre']}), "
-                "se descarta."
+                f"({licitacion_mapeada['fecha_cierre']})."
             )
 
             continue
-
-        # ====================================================
-        # CLASIFICACIÓN BASE
-        # ====================================================
 
         clasificacion = (
             evaluar_licitacion(
@@ -915,7 +1366,8 @@ def procesar_y_guardar_licitaciones():
 
         texto = (
             f"{licitacion_mapeada.get('nombre', '')} "
-            f"{licitacion_mapeada.get('descripcion', '')}"
+            f"{licitacion_mapeada.get('descripcion', '')} "
+            f"{licitacion_mapeada.get('texto_productos', '')}"
         )
 
         existente = (
@@ -939,16 +1391,11 @@ def procesar_y_guardar_licitaciones():
             )
 
             print(
-                f"🎯 Coincidencia Induwork: "
+                "🎯 Coincidencia Induwork: "
                 f"{terminos}"
             )
 
             debe_consultar_gemini = True
-
-            # ------------------------------------------------
-            # Si ya fue validada anteriormente por Gemini,
-            # NO volvemos a gastar una consulta de IA.
-            # ------------------------------------------------
 
             if existente:
 
@@ -988,14 +1435,9 @@ def procesar_y_guardar_licitaciones():
                     )
 
                     print(
-                        "♻️ Ya validada previamente "
-                        "por Gemini. "
-                        "No se vuelve a consultar IA."
+                        "♻️ Ya validada anteriormente "
+                        "por Gemini."
                     )
-
-            # ------------------------------------------------
-            # Gemini
-            # ------------------------------------------------
 
             if debe_consultar_gemini:
 
@@ -1010,9 +1452,10 @@ def procesar_y_guardar_licitaciones():
                             "nombre",
                             "",
                         ),
-                        licitacion_mapeada.get(
-                            "descripcion",
-                            "",
+                        (
+                            f"{licitacion_mapeada.get('descripcion', '')} "
+                            f"Productos: "
+                            f"{licitacion_mapeada.get('texto_productos', '')}"
                         ),
                     )
                 )
@@ -1070,9 +1513,15 @@ def procesar_y_guardar_licitaciones():
         # ====================================================
 
         if not (
-            clasificacion["coimsa"]
-            or clasificacion["induwork"]
-            or clasificacion["especial"]
+            clasificacion[
+                "coimsa"
+            ]
+            or clasificacion[
+                "induwork"
+            ]
+            or clasificacion[
+                "especial"
+            ]
         ):
 
             print(
@@ -1129,11 +1578,6 @@ def procesar_y_guardar_licitaciones():
             )
         )
 
-        # ----------------------------------------------------
-        # Si se detectó HOY:
-        # nueva de hoy
-        # ----------------------------------------------------
-
         if _es_fecha_de_hoy_chile(
             fecha_primera
         ):
@@ -1146,15 +1590,8 @@ def procesar_y_guardar_licitaciones():
 
             print(
                 f"🆕 [HOY] {codigo} "
-                "ya estaba almacenada, "
-                "pero su primera detección "
-                "corresponde a hoy."
+                "corresponde a una detección de hoy."
             )
-
-        # ----------------------------------------------------
-        # Si fue detectada anteriormente:
-        # activa anterior
-        # ----------------------------------------------------
 
         else:
 
@@ -1168,10 +1605,6 @@ def procesar_y_guardar_licitaciones():
                 f"♻️ [ACTIVA ANTERIOR] "
                 f"{codigo} continúa publicada."
             )
-
-    # ========================================================
-    # RESUMEN
-    # ========================================================
 
     print(
         "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -1198,23 +1631,700 @@ def procesar_y_guardar_licitaciones():
     return resultado
 
 
+# ============================================================
+# COMPRA ÁGIL V2 - REQUEST
+# ============================================================
+
+def _request_compra_agil(
+    url,
+    headers,
+    *,
+    params=None,
+    timeout=60,
+):
+
+    max_retries = 3
+
+    backoffs = (
+        5,
+        15,
+        30,
+    )
+
+    for intento in range(
+        max_retries + 1
+    ):
+
+        try:
+
+            response = requests.get(
+                url,
+                headers=headers,
+                params=params,
+                timeout=timeout,
+            )
+
+        except (
+            requests.exceptions.Timeout,
+            requests.exceptions.ConnectionError,
+        ) as error:
+
+            if intento >= max_retries:
+
+                raise
+
+            espera = backoffs[
+                min(
+                    intento,
+                    len(backoffs) - 1,
+                )
+            ]
+
+            print(
+                "⚠️ Error temporal de red "
+                f"({error}). "
+                f"Reintentando en {espera}s..."
+            )
+
+            time.sleep(
+                espera
+            )
+
+            continue
+
+        if response.status_code in (
+            429,
+            500,
+            502,
+            503,
+            504,
+        ):
+
+            if intento >= max_retries:
+
+                return response
+
+            retry_after = (
+                response.headers.get(
+                    "Retry-After"
+                )
+            )
+
+            try:
+
+                espera = (
+                    max(
+                        float(
+                            retry_after
+                        ),
+                        backoffs[
+                            min(
+                                intento,
+                                len(backoffs) - 1,
+                            )
+                        ],
+                    )
+                    if retry_after
+                    else
+                    backoffs[
+                        min(
+                            intento,
+                            len(backoffs) - 1,
+                        )
+                    ]
+                )
+
+            except (
+                ValueError,
+                TypeError,
+            ):
+
+                espera = backoffs[
+                    min(
+                        intento,
+                        len(backoffs) - 1,
+                    )
+                ]
+
+            print(
+                "⚠️ Compra Ágil API respondió "
+                f"HTTP {response.status_code}. "
+                f"Reintentando en {espera}s..."
+            )
+
+            time.sleep(
+                espera
+            )
+
+            continue
+
+        return response
+
+    raise RuntimeError(
+        "No fue posible consultar "
+        "Compra Ágil."
+    )
+
+
+# ============================================================
+# ITEMS COMPRA ÁGIL
+# ============================================================
+
+def _obtener_items_compra_agil(
+    headers,
+    params,
+    timeout=60,
+):
+
+    response = _request_compra_agil(
+        ENDPOINT_COMPRA_AGIL,
+        headers,
+        params=params,
+        timeout=timeout,
+    )
+
+    if response.status_code != 200:
+
+        print(
+            "❌ Compra Ágil respondió HTTP "
+            f"{response.status_code} - "
+            f"{response.text[:500]}"
+        )
+
+        return [], {}
+
+    data = response.json()
+
+    payload = (
+        data.get(
+            "payload",
+            {},
+        )
+        or {}
+    )
+
+    items = (
+        payload.get(
+            "items",
+            [],
+        )
+        or []
+    )
+
+    paginacion = (
+        payload.get(
+            "paginacion",
+            {},
+        )
+        or {}
+    )
+
+    return items, paginacion
+
+
+# ============================================================
+# CONSULTA PAGINADA COMPRA ÁGIL
+# ============================================================
+
+def _consultar_compra_agil_paginas(
+    headers,
+    params_base,
+    etiqueta,
+):
+
+    todos = []
+
+    numero_pagina = 1
+
+    max_paginas = 20
+
+    while (
+        numero_pagina
+        <= max_paginas
+    ):
+
+        params = {
+            **params_base,
+            "numero_pagina": numero_pagina,
+            "tamano_pagina": 50,
+        }
+
+        print(
+            f"⏱️ {etiqueta} "
+            f"— página {numero_pagina}..."
+        )
+
+        items, paginacion = (
+            _obtener_items_compra_agil(
+                headers,
+                params,
+                timeout=60,
+            )
+        )
+
+        if not items:
+            break
+
+        todos.extend(
+            items
+        )
+
+        total_paginas = int(
+            paginacion.get(
+                "total_paginas",
+                1,
+            )
+            or 1
+        )
+
+        numero_respuesta = int(
+            paginacion.get(
+                "numero_pagina",
+                numero_pagina,
+            )
+            or numero_pagina
+        )
+
+        if (
+            numero_respuesta
+            >= total_paginas
+        ):
+
+            break
+
+        numero_pagina += 1
+
+        time.sleep(
+            0.5
+        )
+
+    return todos
+
+
+# ============================================================
+# DETALLE COMPRA ÁGIL
+# ============================================================
+
+def _obtener_detalle_compra_agil(
+    codigo,
+    headers,
+):
+
+    endpoint = (
+        f"{ENDPOINT_COMPRA_AGIL}/"
+        f"{codigo}"
+    )
+
+    try:
+
+        response = _request_compra_agil(
+            endpoint,
+            headers,
+            timeout=45,
+        )
+
+    except requests.exceptions.RequestException as e:
+
+        print(
+            f"⚠️ Error obteniendo detalle "
+            f"de Compra Ágil {codigo}: {e}"
+        )
+
+        return {}
+
+    if response.status_code != 200:
+
+        print(
+            f"⚠️ Detalle Compra Ágil "
+            f"{codigo} respondió HTTP "
+            f"{response.status_code}"
+        )
+
+        return {}
+
+    return (
+        response.json()
+        .get(
+            "payload",
+            {},
+        )
+        or {}
+    )
+
+
+# ============================================================
+# MONTO COMPRA ÁGIL
+# ============================================================
+
+def _extraer_monto_compra_agil(
+    detalle,
+    item,
+):
+
+    presupuesto = (
+        detalle.get(
+            "presupuesto",
+            {},
+        )
+        or {}
+    )
+
+    montos = (
+        item.get(
+            "montos",
+            {},
+        )
+        or {}
+    )
+
+    monto = (
+        presupuesto.get(
+            "presupuesto_estimado"
+        )
+        or presupuesto.get(
+            "monto_disponible"
+        )
+        or presupuesto.get(
+            "monto_disponible_clp"
+        )
+        or montos.get(
+            "monto_disponible"
+        )
+        or montos.get(
+            "monto_disponible_clp"
+        )
+    )
+
+    moneda = (
+        presupuesto.get(
+            "moneda"
+        )
+        or montos.get(
+            "moneda"
+        )
+        or "CLP"
+    )
+
+    return (
+        monto,
+        moneda,
+    )
+
+
+# ============================================================
+# CONSTRUIR COMPRA ÁGIL
+# ============================================================
+
+def _mapear_compra_agil(
+    item,
+    detalle,
+):
+
+    fechas = (
+        detalle.get(
+            "fechas",
+            {},
+        )
+        or {}
+    )
+
+    convocatoria = (
+        detalle.get(
+            "convocatoria",
+            {},
+        )
+        or {}
+    )
+
+    institucion = (
+        detalle.get(
+            "institucion",
+            {},
+        )
+        or {}
+    )
+
+    productos = (
+        detalle.get(
+            "productos_solicitados",
+            [],
+        )
+        or []
+    )
+
+    if not isinstance(
+        productos,
+        list,
+    ):
+
+        productos = []
+
+    partes_productos = []
+
+    productos_normalizados = []
+
+    for producto in productos:
+
+        if not isinstance(
+            producto,
+            dict,
+        ):
+
+            continue
+
+        nombre_producto = (
+            producto.get(
+                "nombre"
+            )
+            or ""
+        )
+
+        descripcion_producto = (
+            producto.get(
+                "descripcion"
+            )
+            or ""
+        )
+
+        partes_productos.extend(
+            [
+                nombre_producto,
+                descripcion_producto,
+            ]
+        )
+
+        productos_normalizados.append(
+            {
+                "codigo_producto": (
+                    producto.get(
+                        "codigo_producto"
+                    )
+                ),
+                "nombre": nombre_producto,
+                "descripcion": (
+                    descripcion_producto
+                ),
+                "cantidad": (
+                    producto.get(
+                        "cantidad"
+                    )
+                ),
+                "unidad_medida": (
+                    producto.get(
+                        "unidad_medida"
+                    )
+                ),
+            }
+        )
+
+    texto_productos = (
+        " ".join(
+            str(parte)
+            for parte in partes_productos
+            if parte
+        )
+        .strip()
+    )
+
+    nombre = (
+        detalle.get(
+            "nombre"
+        )
+        or item.get(
+            "nombre",
+            "Compra Ágil sin título",
+        )
+    )
+
+    descripcion = (
+        detalle.get(
+            "descripcion"
+        )
+        or texto_productos
+        or item.get(
+            "nombre",
+            "",
+        )
+    )
+
+    monto, moneda = (
+        _extraer_monto_compra_agil(
+            detalle,
+            item,
+        )
+    )
+
+    codigo = (
+        detalle.get(
+            "codigo"
+        )
+        or item.get(
+            "codigo"
+        )
+    )
+
+    return {
+        "id": codigo,
+
+        "nombre": nombre,
+
+        "descripcion": descripcion,
+
+        "productos_solicitados": (
+            productos_normalizados
+        ),
+
+        "texto_productos": (
+            texto_productos
+        ),
+
+        "region": (
+            institucion.get(
+                "nombre_region"
+            )
+            or "No Especificada"
+        ),
+
+        "region_codigo": (
+            institucion.get(
+                "region"
+            )
+        ),
+
+        "organismo": (
+            institucion.get(
+                "organismo_comprador"
+            )
+            or "Organismo Desconocido"
+        ),
+
+        "rut_organismo": (
+            institucion.get(
+                "rut"
+            )
+        ),
+
+        "unidad_compra": (
+            institucion.get(
+                "unidad_compra"
+            )
+        ),
+
+        "fecha_publicacion": (
+            fechas.get(
+                "fecha_publicacion"
+            )
+            or item.get(
+                "fecha_publicacion"
+            )
+            or "Sin fecha"
+        ),
+
+        "fecha_cierre": (
+            fechas.get(
+                "fecha_cierre"
+            )
+            or (
+                item.get(
+                    "fechas",
+                    {},
+                )
+                or {}
+            ).get(
+                "fecha_cierre"
+            )
+            or item.get(
+                "fecha_cierre"
+            )
+        ),
+
+        "fecha_ultimo_cambio": (
+            fechas.get(
+                "fecha_ultimo_cambio"
+            )
+        ),
+
+        "link": (
+            f"{ENDPOINT_COMPRA_AGIL}/"
+            f"{codigo}"
+        ),
+
+        "link_mercado_publico": (
+            "https://buscador."
+            "mercadopublico.cl/"
+            "compra-agil"
+        ),
+
+        "tipo": "Compra Ágil",
+
+        "monto_estimado": monto,
+
+        "moneda": moneda,
+
+        "monto_formateado": (
+            _formatear_monto(
+                monto,
+                moneda,
+            )
+        ),
+
+        "tipo_presupuesto": (
+            (
+                detalle.get(
+                    "presupuesto",
+                    {},
+                )
+                or {}
+            ).get(
+                "tipo_presupuesto"
+            )
+        ),
+
+        "estado_convocatoria": (
+            convocatoria.get(
+                "estado_convocatoria"
+            )
+        ),
+
+        "convocatoria": (
+            convocatoria.get(
+                "descripcion"
+            )
+        ),
+
+        "fecha_cierre_primer_llamado": (
+            convocatoria.get(
+                "fecha_cierre_primer_llamado"
+            )
+        ),
+
+        "fecha_cierre_segundo_llamado": (
+            convocatoria.get(
+                "fecha_cierre_segundo_llamado"
+            )
+        ),
+
+        "requiere_garantia_seriedad": False,
+
+        "requiere_garantia_fiel_cumplimiento": False,
+    }
+
+
+# ============================================================
+# FAST CHECK COMPRA ÁGIL
+# ============================================================
+
 def simular_scraping_compra_agil_urgente():
-    """
-    Busca Compras Ágiles publicadas que cierren
-    dentro de las próximas 72 horas.
-    """
 
     if not TICKET:
+
         print(
             "❌ Error: No se ha configurado "
             "CHILECOMPRA_TICKET para "
             "Compra Ágil v2."
         )
-        return []
 
-    BASE_URL_V2 = (
-        "https://api2.mercadopublico.cl"
-    )
+        return []
 
     headers = {
         "ticket": TICKET,
@@ -1222,179 +2332,197 @@ def simular_scraping_compra_agil_urgente():
             "Mozilla/5.0 "
             "(Windows NT 10.0; Win64; x64)"
         ),
+        "Accept": "application/json",
     }
 
-    params = {
-        "estado": "publicada",
-        "tamano_pagina": 50,
-        "numero_pagina": 1,
-    }
+    ahora = (
+        _ahora_chile_naive()
+    )
 
     alertas_urgentes = []
 
-    MAX_PAGINAS_SEGURIDAD = 20
-
-    ahora = (
-        datetime.datetime.now(
-            CL_TZ
-        ).replace(
-            tzinfo=None
-        )
-    )
+    ids_procesados = set()
 
     try:
 
-        todos_los_items = []
+        # ====================================================
+        # CONSULTA 1
+        # INCREMENTAL
+        # ====================================================
 
-        while True:
-
-            print(
-                "⏱️ Consultando Compra Ágil "
-                "v2 (publicada) - página "
-                f"{params['numero_pagina']}..."
-            )
-
-            try:
-
-                response = requests.get(
-                    f"{BASE_URL_V2}/v2/compra-agil",
-                    headers=headers,
-                    params=params,
-                    timeout=45,
-                )
-
-                response.raise_for_status()
-
-            except requests.exceptions.Timeout:
-                print(
-                    "⚠️ Timeout consultando "
-                    "Compra Ágil."
-                )
-
-                break
-
-            payload = (
-                response.json()
-                .get("payload", {})
-                or {}
-            )
-
-            items = payload.get(
-                "items",
-                []
-            )
-
-            paginacion = (
-                payload.get(
-                    "paginacion",
-                    {},
-                )
-                or {}
-            )
-
-            todos_los_items.extend(
-                items
-            )
-
-            total_paginas = (
-                paginacion.get(
-                    "total_paginas",
-                    1,
-                )
-            )
-
-            numero_pagina = (
-                paginacion.get(
-                    "numero_pagina",
-                    params[
-                        "numero_pagina"
-                    ],
-                )
-            )
-
-            if (
-                numero_pagina
-                >= total_paginas
-                or numero_pagina
-                >= MAX_PAGINAS_SEGURIDAD
-            ):
-                break
-
-            params[
-                "numero_pagina"
-            ] += 1
-
-            time.sleep(1)
-
-        print(
-            f"🔎 Analizando "
-            f"{len(todos_los_items)} "
-            "Compras Ágiles publicadas."
+        ventana_ms = (
+            2
+            * 60
+            * 60
+            * 1000
         )
 
-        for item in todos_los_items:
+        params_incremental = {
+            "ttl_cambio_ms": ventana_ms,
+            "estado": "publicada",
+            "ordenar_por": (
+                "FechaUltimaModificacion"
+            ),
+        }
 
-            codigo_ca = item.get(
+        print(
+            "⏱️ Consultando Compra Ágil "
+            "v2 incremental..."
+        )
+
+        items_incrementales = (
+            _consultar_compra_agil_paginas(
+                headers,
+                params_incremental,
+                "Compra Ágil incremental",
+            )
+        )
+
+        # ====================================================
+        # CONSULTA 2
+        # RECUPERACIÓN DE PUBLICADAS RECIENTES
+        # ====================================================
+
+        fecha_desde = (
+            datetime.datetime.now(
+                datetime.timezone.utc
+            )
+            - datetime.timedelta(
+                days=COMPRA_AGIL_DIAS_RECUPERACION
+            )
+        )
+
+        fecha_desde_iso = (
+            fecha_desde.strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            )
+        )
+
+        params_recuperacion = {
+            "publicado_desde": (
+                fecha_desde_iso
+            ),
+            "estado": "publicada",
+            "ordenar_por": (
+                "FechaPublicacion"
+            ),
+        }
+
+        print(
+            "🔄 Recuperando Compras Ágiles "
+            f"publicadas durante los "
+            f"últimos "
+            f"{COMPRA_AGIL_DIAS_RECUPERACION} días..."
+        )
+
+        try:
+
+            items_recuperacion = (
+                _consultar_compra_agil_paginas(
+                    headers,
+                    params_recuperacion,
+                    "Compra Ágil recuperación",
+                )
+            )
+
+        except requests.exceptions.RequestException as e:
+
+            print(
+                "⚠️ La consulta de recuperación "
+                f"falló: {e}"
+            )
+
+            items_recuperacion = []
+
+        # ====================================================
+        # UNIFICAR
+        # ====================================================
+
+        todos_los_items = []
+
+        for item in (
+            items_incrementales
+            + items_recuperacion
+        ):
+
+            codigo = item.get(
                 "codigo"
             )
 
-            if not codigo_ca:
+            if not codigo:
                 continue
 
-            try:
-
-                det_resp = requests.get(
-                    f"{BASE_URL_V2}/v2/compra-agil/"
-                    f"{codigo_ca}",
-                    headers=headers,
-                    timeout=30,
-                )
-
-            except requests.exceptions.Timeout:
-                print(
-                    f"⚠️ Timeout obteniendo "
-                    f"Compra Ágil {codigo_ca}."
-                )
+            if codigo in ids_procesados:
                 continue
 
-            if det_resp.status_code != 200:
+            ids_procesados.add(
+                codigo
+            )
+
+            todos_los_items.append(
+                item
+            )
+
+        print(
+            f"🔎 {len(todos_los_items)} "
+            "Compras Ágiles únicas "
+            "para analizar."
+        )
+
+        # ====================================================
+        # PROCESAMIENTO
+        # ====================================================
+
+        for indice, item in enumerate(
+            todos_los_items,
+            start=1,
+        ):
+
+            codigo = item.get(
+                "codigo"
+            )
+
+            if not codigo:
                 continue
 
             detalle = (
-                det_resp.json()
-                .get("payload", {})
-                or {}
-            )
-
-            fechas = (
-                detalle.get(
-                    "fechas",
-                    {},
-                )
-                or {}
-            )
-
-            fecha_cierre_str = (
-                fechas.get(
-                    "fecha_cierre"
-                )
-                or item.get(
-                    "fecha_cierre"
+                _obtener_detalle_compra_agil(
+                    codigo,
+                    headers,
                 )
             )
 
-            fecha_cierre_dt = (
+            if not detalle:
+                continue
+
+            compra = (
+                _mapear_compra_agil(
+                    item,
+                    detalle,
+                )
+            )
+
+            fecha_cierre = (
                 _parsear_fecha(
-                    fecha_cierre_str
+                    compra.get(
+                        "fecha_cierre"
+                    )
                 )
             )
 
-            if not fecha_cierre_dt:
+            if not fecha_cierre:
+
+                print(
+                    f"⚠️ Compra Ágil "
+                    f"{codigo} sin fecha de "
+                    "cierre interpretable."
+                )
+
                 continue
 
             horas_restantes = (
                 (
-                    fecha_cierre_dt
+                    fecha_cierre
                     - ahora
                 ).total_seconds()
                 / 3600
@@ -1405,90 +2533,34 @@ def simular_scraping_compra_agil_urgente():
                 or horas_restantes
                 > HORAS_URGENTE_COMPRA_AGIL
             ):
+
                 continue
 
-            compra_mapeada = {
-                "id": codigo_ca,
-                "nombre": item.get(
-                    "nombre",
-                    "Compra Ágil sin título",
-                ),
-                "descripcion": (
-                    detalle.get(
-                        "descripcion"
-                    )
-                    or item.get(
-                        "nombre",
-                        "",
-                    )
-                ),
-                "region": (
-                    detalle.get(
-                        "institucion",
-                        {},
-                    )
-                    or {}
-                ).get(
-                    "nombre_region",
-                    "No Especificada",
-                ),
-                "organismo": (
-                    detalle.get(
-                        "institucion",
-                        {},
-                    )
-                    or {}
-                ).get(
-                    "organismo_comprador",
-                    "Organismo Desconocido",
-                ),
-                "fecha_cierre": fecha_cierre_str,
-                "link": (
-                    "https://buscador."
-                    "mercadopublico.cl/"
-                    "compra-agil"
-                ),
-                "tipo": "Compra Ágil",
-                "monto_estimado": (
-                    detalle.get(
-                        "monto_estimado"
-                    )
-                    or item.get(
-                        "monto_estimado"
-                    )
-                ),
-                "moneda": detalle.get(
-                    "moneda",
-                    "CLP",
-                ),
-                "monto_formateado": (
-                    _formatear_monto(
-                        detalle.get(
-                            "monto_estimado"
-                        )
-                        or item.get(
-                            "monto_estimado"
-                        ),
-                        detalle.get(
-                            "moneda",
-                            "CLP",
-                        ),
-                    )
-                ),
-                "requiere_garantia_seriedad": False,
-                "requiere_garantia_fiel_cumplimiento": False,
-            }
+            texto = (
+                f"{compra.get('nombre', '')} "
+                f"{compra.get('descripcion', '')} "
+                f"{compra.get('texto_productos', '')}"
+            )
+
+            # =================================================
+            # FILTRO
+            # =================================================
+
+            if not posible_relevante(
+                texto
+            ):
+
+                continue
 
             clasificacion = (
                 evaluar_licitacion(
-                    compra_mapeada
+                    compra
                 )
             )
 
-            texto = (
-                f"{compra_mapeada.get('nombre', '')} "
-                f"{compra_mapeada.get('descripcion', '')}"
-            )
+            # =================================================
+            # GEMINI INDUWORK
+            # =================================================
 
             if contiene_keyword_induwork(
                 texto
@@ -1502,20 +2574,26 @@ def simular_scraping_compra_agil_urgente():
 
                 print(
                     f"🎯 Compra Ágil "
-                    f"{codigo_ca} "
+                    f"{codigo} "
                     f"coincide con Induwork "
                     f"| términos: {terminos}"
                 )
 
+                print(
+                    "🤖 Consultando Gemini "
+                    "para validar relevancia..."
+                )
+
                 clasificacion_ia = (
                     clasificar_con_gemini(
-                        compra_mapeada.get(
+                        compra.get(
                             "nombre",
                             "",
                         ),
-                        compra_mapeada.get(
-                            "descripcion",
-                            "",
+                        (
+                            f"{compra.get('descripcion', '')} "
+                            f"Productos: "
+                            f"{compra.get('texto_productos', '')}"
                         ),
                     )
                 )
@@ -1534,7 +2612,7 @@ def simular_scraping_compra_agil_urgente():
                     ]
                 ):
 
-                    compra_mapeada[
+                    compra[
                         "validacion_ia_induwork"
                     ] = {
                         "motivo": (
@@ -1552,104 +2630,178 @@ def simular_scraping_compra_agil_urgente():
                     }
 
                     print(
-                        f"✅ Gemini aprobó "
-                        f"Compra Ágil "
-                        f"{codigo_ca}"
+                        "✅ Gemini aprobó "
+                        f"Compra Ágil {codigo}"
                     )
 
                 else:
 
                     print(
-                        f"⛔ Gemini descartó "
-                        f"Compra Ágil "
-                        f"{codigo_ca}"
+                        "⛔ Gemini descartó "
+                        f"Compra Ágil {codigo}"
                     )
 
+            # =================================================
+            # NINGUNA CATEGORÍA
+            # =================================================
+
             if not (
-                clasificacion["coimsa"]
-                or clasificacion["induwork"]
-                or clasificacion["especial"]
+                clasificacion[
+                    "coimsa"
+                ]
+                or clasificacion[
+                    "induwork"
+                ]
+                or clasificacion[
+                    "especial"
+                ]
             ):
+
                 continue
 
-            compra_mapeada[
+            compra[
                 "clasificacion"
             ] = clasificacion
 
-            compra_mapeada[
+            compra[
                 "urgente"
             ] = True
 
-            compra_mapeada[
+            ahora_utc = (
+                _ahora_utc_naive()
+            )
+
+            compra[
                 "fecha_captura"
-            ] = datetime.datetime.utcnow()
+            ] = ahora_utc
 
-            if db is not None:
+            compra[
+                "fecha_primera_deteccion"
+            ] = ahora_utc
 
-                existente = (
-                    db[
-                        "licitaciones"
-                    ].find_one(
-                        {
-                            "id": codigo_ca
-                        }
-                    )
+            compra[
+                "ultima_verificacion"
+            ] = ahora_utc
+
+            compra[
+                "activa"
+            ] = True
+
+            # =================================================
+            # DB
+            # =================================================
+
+            if db is None:
+
+                alertas_urgentes.append(
+                    compra
                 )
 
-                if existente:
-                    continue
+                continue
+
+            existente = (
+                db[
+                    "licitaciones"
+                ].find_one(
+                    {
+                        "id": codigo
+                    }
+                )
+            )
+
+            if existente:
 
                 try:
 
+                    campos_actuales = {
+                        key: value
+                        for key, value
+                        in compra.items()
+                        if key not in (
+                            "id",
+                            "fecha_captura",
+                            "fecha_primera_deteccion",
+                        )
+                    }
+
                     db[
                         "licitaciones"
-                    ].insert_one(
-                        compra_mapeada.copy()
-                    )
-
-                    alertas_urgentes.append(
-                        compra_mapeada
-                    )
-
-                    print(
-                        f"✨ [Compra Ágil] "
-                        f"Cierra en "
-                        f"{horas_restantes:.1f}h "
-                        f"— Guardada: "
-                        f"{codigo_ca}"
+                    ].update_one(
+                        {
+                            "id": codigo
+                        },
+                        {
+                            "$set":
+                                campos_actuales
+                        },
                     )
 
                 except Exception as e:
 
                     print(
-                        f"⚠️ No se pudo guardar "
-                        f"{codigo_ca}: {e}"
+                        f"⚠️ No se pudo actualizar "
+                        f"Compra Ágil {codigo}: {e}"
                     )
 
-            else:
+                continue
 
-                alertas_urgentes.append(
-                    compra_mapeada
+            try:
+
+                db[
+                    "licitaciones"
+                ].insert_one(
+                    compra.copy()
                 )
 
-            time.sleep(0.5)
+                alertas_urgentes.append(
+                    compra
+                )
 
-        return alertas_urgentes
+                print(
+                    f"✨ [Compra Ágil] "
+                    f"{codigo} "
+                    f"cierra en "
+                    f"{horas_restantes:.1f}h "
+                    f"— Guardada."
+                )
 
-    except Exception as e:
+            except Exception as e:
+
+                print(
+                    f"⚠️ No se pudo guardar "
+                    f"{codigo}: {e}"
+                )
+
+    except requests.exceptions.RequestException as e:
 
         print(
-            "❌ Error al conectar con "
+            "❌ Error HTTP al consultar "
             f"la API v2 de Compra Ágil: {e}"
         )
 
         return []
 
+    except Exception as e:
+
+        print(
+            "❌ Error al procesar "
+            f"Compra Ágil: {e}"
+        )
+
+        return []
+
+    return alertas_urgentes
+
+
+# ============================================================
+# ALMACENADAS
+# ============================================================
 
 def obtener_almacenadas(
     desde=None,
     hasta=None,
 ):
+
     if db is None:
         return []
 
@@ -1662,14 +2814,20 @@ def obtener_almacenadas(
         ] = {}
 
         if desde:
+
             query[
                 "fecha_captura"
-            ]["$gte"] = desde
+            ][
+                "$gte"
+            ] = desde
 
         if hasta:
+
             query[
                 "fecha_captura"
-            ]["$lte"] = hasta
+            ][
+                "$lte"
+            ] = hasta
 
     documentos = list(
         db[
@@ -1683,6 +2841,7 @@ def obtener_almacenadas(
     )
 
     for documento in documentos:
+
         documento.pop(
             "_id",
             None,
@@ -1691,13 +2850,18 @@ def obtener_almacenadas(
     return documentos
 
 
+# ============================================================
+# AGRUPAR
+# ============================================================
+
 def agrupar_por_empresa(
     documentos,
 ):
+
     coimsa = [
-        d
-        for d in documentos
-        if d.get(
+        documento
+        for documento in documentos
+        if documento.get(
             "clasificacion",
             {},
         ).get(
@@ -1706,9 +2870,9 @@ def agrupar_por_empresa(
     ]
 
     induwork = [
-        d
-        for d in documentos
-        if d.get(
+        documento
+        for documento in documentos
+        if documento.get(
             "clasificacion",
             {},
         ).get(
@@ -1717,9 +2881,9 @@ def agrupar_por_empresa(
     ]
 
     especial = [
-        d
-        for d in documentos
-        if d.get(
+        documento
+        for documento in documentos
+        if documento.get(
             "clasificacion",
             {},
         ).get(
@@ -1734,13 +2898,18 @@ def agrupar_por_empresa(
     }
 
 
+# ============================================================
+# CONTAR POR TIPO
+# ============================================================
+
 def contar_por_tipo(
     documentos,
 ):
+
     licitaciones = sum(
         1
-        for d in documentos
-        if d.get(
+        for documento in documentos
+        if documento.get(
             "tipo"
         )
         == "Licitación"
@@ -1748,8 +2917,8 @@ def contar_por_tipo(
 
     compras_agiles = sum(
         1
-        for d in documentos
-        if d.get(
+        for documento in documentos
+        if documento.get(
             "tipo"
         )
         == "Compra Ágil"
@@ -1759,78 +2928,3 @@ def contar_por_tipo(
         "licitaciones": licitaciones,
         "compras_agiles": compras_agiles,
     }
-
-
-def limpiar_licitaciones_no_clasificadas():
-    """
-    Elimina de Mongo las licitaciones que ya no
-    clasifican bajo los filtros actuales.
-    """
-
-    if db is None:
-        print(
-            "❌ No hay conexión "
-            "a la base de datos."
-        )
-        return
-
-    todas = list(
-        db.licitaciones.find(
-            {},
-            {
-                "_id": 1,
-                "id": 1,
-                "nombre": 1,
-                "descripcion": 1,
-                "region": 1,
-            },
-        )
-    )
-
-    eliminados = 0
-
-    for doc in todas:
-
-        lic_temp = {
-            "nombre": doc.get(
-                "nombre",
-                "",
-            ),
-            "descripcion": doc.get(
-                "descripcion",
-                "",
-            ),
-            "region": doc.get(
-                "region",
-                "",
-            ),
-        }
-
-        clasif = evaluar_licitacion(
-            lic_temp
-        )
-
-        if not (
-            clasif["coimsa"]
-            or clasif["induwork"]
-            or clasif["especial"]
-        ):
-
-            db.licitaciones.delete_one(
-                {
-                    "_id": doc["_id"]
-                }
-            )
-
-            eliminados += 1
-
-            print(
-                f"🗑️ Eliminada licitación "
-                f"{doc.get('id', 'sin_id')} "
-                "porque ya no clasifica."
-            )
-
-    print(
-        f"✅ Limpieza completada: "
-        f"{eliminados} registros eliminados."
-    )

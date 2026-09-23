@@ -1,10 +1,16 @@
 # modules/template.py
 
 import os
+
 from datetime import datetime
+
 from zoneinfo import ZoneInfo
 
-CL_TZ = ZoneInfo("America/Santiago")
+
+CL_TZ = ZoneInfo(
+    "America/Santiago"
+)
+
 
 CATEGORY_CONFIG = {
     "induwork": {
@@ -14,6 +20,7 @@ CATEGORY_CONFIG = {
         "empresa": "Induwork",
         "logo_clave": "INDUWORK",
     },
+
     "coimsa": {
         "primary_color": "#054075",
         "banner": "coimsa.jpg",
@@ -21,6 +28,7 @@ CATEGORY_CONFIG = {
         "empresa": "Coimsa",
         "logo_clave": "COIMSASPA",
     },
+
     "especial": {
         "primary_color": "#c29f63",
         "banner": "inversiones.jpg",
@@ -30,9 +38,13 @@ CATEGORY_CONFIG = {
     },
 }
 
+
 BASE_DIR = os.path.dirname(
-    os.path.dirname(os.path.abspath(__file__))
+    os.path.dirname(
+        os.path.abspath(__file__)
+    )
 )
+
 
 ASSETS_DIR = os.path.join(
     BASE_DIR,
@@ -41,34 +53,60 @@ ASSETS_DIR = os.path.join(
     "images",
 )
 
+
 BANNERS_DIR = os.path.join(
     ASSETS_DIR,
     "banners",
 )
 
 
-def _get_banner_path(categoria: str) -> str:
-    config = CATEGORY_CONFIG.get(categoria)
+def _get_banner_path(
+    categoria: str,
+) -> str:
+
+    config = CATEGORY_CONFIG.get(
+        categoria
+    )
 
     if not config:
         return ""
 
-    banner_name = config["banner"]
+    banner_name = config[
+        "banner"
+    ]
 
     banner_path = os.path.join(
         BANNERS_DIR,
         banner_name,
     )
 
-    if os.path.exists(banner_path):
+    if os.path.exists(
+        banner_path
+    ):
         return banner_path
 
-    if os.path.exists(BANNERS_DIR):
-        for fname in os.listdir(BANNERS_DIR):
+    if os.path.exists(
+        BANNERS_DIR
+    ):
+
+        for fname in os.listdir(
+            BANNERS_DIR
+        ):
+
+            normalizado = (
+                fname
+                .lower()
+                .replace(
+                    " ",
+                    ""
+                )
+            )
+
             if (
                 banner_name.lower()
-                in fname.lower().replace(" ", "")
+                in normalizado
             ):
+
                 return os.path.join(
                     BANNERS_DIR,
                     fname,
@@ -77,67 +115,103 @@ def _get_banner_path(categoria: str) -> str:
     return ""
 
 
-def _get_logo_path(clave: str) -> str:
-    if not os.path.isdir(ASSETS_DIR):
+def _get_logo_path(
+    clave: str,
+) -> str:
+
+    if not os.path.isdir(
+        ASSETS_DIR
+    ):
         return ""
 
-    for fname in os.listdir(ASSETS_DIR):
+    for fname in os.listdir(
+        ASSETS_DIR
+    ):
+
+        ruta = os.path.join(
+            ASSETS_DIR,
+            fname,
+        )
+
         if os.path.isdir(
-            os.path.join(ASSETS_DIR, fname)
+            ruta
         ):
             continue
 
+        normalizado = (
+            fname
+            .lower()
+            .replace(
+                " ",
+                ""
+            )
+        )
+
         if (
             clave.lower()
-            in fname.lower().replace(" ", "")
+            in normalizado
         ):
-            return os.path.join(
-                ASSETS_DIR,
-                fname,
-            )
+
+            return ruta
 
     return ""
 
 
-def _formatear_fecha_cierre(valor) -> str:
-    """
-    Convierte diferentes formatos de fecha a:
-    DD/MM/YYYY HH:MM
-    """
+def _formatear_fecha_cierre(
+    valor,
+) -> str:
 
     if not valor:
         return "Sin fecha"
 
-    if isinstance(valor, datetime):
+    if isinstance(
+        valor,
+        datetime,
+    ):
+
         fecha = valor
 
         if fecha.tzinfo is not None:
-            fecha = fecha.astimezone(CL_TZ)
+
+            fecha = fecha.astimezone(
+                CL_TZ
+            )
 
         return fecha.strftime(
             "%d/%m/%Y %H:%M"
         )
 
-    if isinstance(valor, str):
+    if isinstance(
+        valor,
+        str,
+    ):
+
         valor = valor.strip()
 
         if not valor:
             return "Sin fecha"
 
-        # ISO 8601
         try:
+
             fecha = datetime.fromisoformat(
-                valor.replace("Z", "+00:00")
+                valor.replace(
+                    "Z",
+                    "+00:00",
+                )
             )
 
             if fecha.tzinfo is not None:
-                fecha = fecha.astimezone(CL_TZ)
+
+                fecha = fecha.astimezone(
+                    CL_TZ
+                )
 
             return fecha.strftime(
                 "%d/%m/%Y %H:%M"
             )
 
         except ValueError:
+
             pass
 
         formatos = (
@@ -150,7 +224,9 @@ def _formatear_fecha_cierre(valor) -> str:
         )
 
         for formato in formatos:
+
             try:
+
                 fecha = datetime.strptime(
                     valor,
                     formato,
@@ -161,11 +237,14 @@ def _formatear_fecha_cierre(valor) -> str:
                 )
 
             except ValueError:
+
                 continue
 
         return valor
 
-    return str(valor)
+    return str(
+        valor
+    )
 
 
 def generar_html_correo(
@@ -194,7 +273,9 @@ def generar_html_correo(
         else config["titulo_general"]
     )
 
-    banner_path = _get_banner_path(categoria)
+    banner_path = _get_banner_path(
+        categoria
+    )
 
     banner_cid = (
         "banner"
@@ -202,8 +283,9 @@ def generar_html_correo(
         else ""
     )
 
-    banner_html = (
-        f'''
+    if banner_path:
+
+        banner_html = f'''
         <img
             src="cid:{banner_cid}"
             alt="{config["empresa"]}"
@@ -214,22 +296,19 @@ def generar_html_correo(
             "
         >
         '''
-        if banner_path
-        else
-        f'''
+
+    else:
+
+        banner_html = f'''
         <div
             style="
                 width: 100%;
                 height: 80px;
-                background-color: {primary_color};
+                background-color:
+                    {primary_color};
             "
         ></div>
         '''
-    )
-
-    # ========================================================
-    # REPORTE DIARIO CON DOS SECCIONES
-    # ========================================================
 
     usar_secciones_diarias = (
         nuevas_licitaciones is not None
@@ -248,10 +327,12 @@ def generar_html_correo(
             or []
         )
 
-        tabla_html = _generar_secciones_diarias(
-            nuevas=nuevas,
-            anteriores=anteriores,
-            primary_color=primary_color,
+        tabla_html = (
+            _generar_secciones_diarias(
+                nuevas=nuevas,
+                anteriores=anteriores,
+                primary_color=primary_color,
+            )
         )
 
         total_oportunidades = (
@@ -276,20 +357,15 @@ def generar_html_correo(
             else 0
         )
 
-    # ========================================================
-    # CUERPO EXTRA
-    # ========================================================
-
     if (
         not usar_secciones_diarias
         and not licitaciones
         and cuerpo_extra_html
     ):
-        tabla_html = cuerpo_extra_html
 
-    # ========================================================
-    # CONTADOR
-    # ========================================================
+        tabla_html = (
+            cuerpo_extra_html
+        )
 
     contador_html = ""
 
@@ -300,42 +376,47 @@ def generar_html_correo(
             <td
                 style="
                     text-align: center;
-                    padding: 10px 0 5px 0;
+                    padding:
+                        10px 0 5px 0;
                     font-size: 14px;
                     color: #666666;
                 "
             >
                 <b
                     style="
-                        color: {primary_color};
+                        color:
+                            {primary_color};
                     "
                 >
-                    Total de oportunidades: {total_oportunidades}
+                    Total de oportunidades:
+                    {total_oportunidades}
                 </b>
             </td>
         </tr>
         """
 
-    # ========================================================
-    # HTML COMPLETO
-    # ========================================================
-
     html = f"""
 <!DOCTYPE html>
+
 <html>
 
 <head>
+
     <meta charset="UTF-8">
 
     <meta
         name="viewport"
-        content="width=device-width,
-                 initial-scale=1.0"
+        content="
+            width=device-width,
+            initial-scale=1.0
+        "
     >
 
     <title>
-        {config['empresa']} - {titulo}
+        {config['empresa']} -
+        {titulo}
     </title>
+
 </head>
 
 <body
@@ -346,7 +427,8 @@ def generar_html_correo(
             'Segoe UI',
             Arial,
             sans-serif;
-        background-color: #f0f2f5;
+        background-color:
+            #f0f2f5;
     "
 >
 
@@ -358,7 +440,8 @@ def generar_html_correo(
         width="100%"
         style="
             max-width: 700px;
-            background-color: #ffffff;
+            background-color:
+                #ffffff;
             margin: 20px auto;
             border-radius: 12px;
             box-shadow:
@@ -369,7 +452,11 @@ def generar_html_correo(
 
         <tr>
 
-            <td style="padding: 0;">
+            <td
+                style="
+                    padding: 0;
+                "
+            >
 
                 <!-- BANNER -->
 
@@ -382,7 +469,11 @@ def generar_html_correo(
 
                     <tr>
 
-                        <td style="padding: 0;">
+                        <td
+                            style="
+                                padding: 0;
+                            "
+                        >
 
                             {banner_html}
 
@@ -432,17 +523,21 @@ def generar_html_correo(
                             style="
                                 text-align: center;
                                 padding:
-                                    0 20px 0 20px;
+                                    0 20px;
                             "
                         >
 
                             <h2
                                 style="
-                                    color: #1A1A2E;
+                                    color:
+                                        #1A1A2E;
                                     margin: 0;
-                                    font-size: 22px;
-                                    font-weight: 700;
-                                    letter-spacing: 0.5px;
+                                    font-size:
+                                        22px;
+                                    font-weight:
+                                        700;
+                                    letter-spacing:
+                                        0.5px;
                                 "
                             >
                                 {titulo}
@@ -488,13 +583,17 @@ def generar_html_correo(
                     cellspacing="0"
                     style="
                         padding:
-                            0 20px 0 20px;
+                            0 20px;
                     "
                 >
 
                     <tr>
 
-                        <td style="padding: 0;">
+                        <td
+                            style="
+                                padding: 0;
+                            "
+                        >
 
                             {tabla_html}
 
@@ -562,7 +661,6 @@ def generar_html_correo(
                         <td
                             style="
                                 padding:
-                                    16px 20px
                                     16px 20px;
                                 text-align: center;
                             "
@@ -572,9 +670,12 @@ def generar_html_correo(
                                 style="
                                     margin:
                                         0 0 4px 0;
-                                    color: #ffffff;
-                                    font-weight: 600;
-                                    font-size: 13px;
+                                    color:
+                                        #ffffff;
+                                    font-weight:
+                                        600;
+                                    font-size:
+                                        13px;
                                 "
                             >
                                 ¿Este filtro está funcionando bien?
@@ -591,7 +692,8 @@ def generar_html_correo(
                                             255,
                                             0.85
                                         );
-                                    font-size: 12px;
+                                    font-size:
+                                        12px;
                                 "
                             >
                                 Reporta licitaciones que
@@ -605,18 +707,22 @@ def generar_html_correo(
                                     9WScZHxP9xaJCMYq9
                                 "
                                 style="
-                                    display: inline-block;
+                                    display:
+                                        inline-block;
                                     background-color:
                                         #ffffff;
                                     color:
                                         {primary_color};
                                     padding:
                                         9px 28px;
-                                    text-decoration: none;
-                                    font-weight: 700;
+                                    text-decoration:
+                                        none;
+                                    font-weight:
+                                        700;
                                     border-radius:
                                         30px;
-                                    font-size: 13px;
+                                    font-size:
+                                        13px;
                                     margin-bottom:
                                         6px;
                                 "
@@ -635,11 +741,14 @@ def generar_html_correo(
                                             255,
                                             0.7
                                         );
-                                    font-size: 10px;
+                                    font-size:
+                                        10px;
                                 "
                             >
-                                © {datetime.now(CL_TZ).year}
-                                · {config['empresa']}
+                                ©
+                                {datetime.now(CL_TZ).year}
+                                ·
+                                {config['empresa']}
                                 · Bot automatizado
                             </p>
 
@@ -663,21 +772,23 @@ def generar_html_correo(
     return html
 
 
+# ============================================================
+# SECCIONES DIARIAS
+# ============================================================
+
 def _generar_secciones_diarias(
     nuevas: list,
     anteriores: list,
     primary_color: str,
 ) -> str:
 
-    # ========================================================
-    # NUEVAS
-    # ========================================================
-
     if nuevas:
 
-        nuevas_html = _generar_tabla_html(
-            nuevas,
-            primary_color,
+        nuevas_html = (
+            _generar_tabla_html(
+                nuevas,
+                primary_color,
+            )
         )
 
     else:
@@ -700,15 +811,13 @@ def _generar_secciones_diarias(
         </div>
         """
 
-    # ========================================================
-    # ANTERIORES AÚN ACTIVAS
-    # ========================================================
-
     if anteriores:
 
-        anteriores_html = _generar_tabla_html(
-            anteriores,
-            primary_color,
+        anteriores_html = (
+            _generar_tabla_html(
+                anteriores,
+                primary_color,
+            )
         )
 
     else:
@@ -733,10 +842,6 @@ def _generar_secciones_diarias(
 
     return f"""
 
-    <!-- ================================================ -->
-    <!-- NUEVAS OPORTUNIDADES -->
-    <!-- ================================================ -->
-
     <div
         style="
             margin-bottom: 35px;
@@ -747,12 +852,17 @@ def _generar_secciones_diarias(
             style="
                 margin:
                     0 0 12px 0;
-                color: #1A1A2E;
-                font-size: 17px;
-                font-weight: 700;
+                color:
+                    #1A1A2E;
+                font-size:
+                    17px;
+                font-weight:
+                    700;
                 border-bottom:
-                    2px solid {primary_color};
-                padding-bottom: 8px;
+                    2px solid
+                    {primary_color};
+                padding-bottom:
+                    8px;
             "
         >
             Nuevas oportunidades de hoy
@@ -762,23 +872,23 @@ def _generar_secciones_diarias(
 
     </div>
 
-
-    <!-- ================================================ -->
-    <!-- ACTIVAS ANTERIORES -->
-    <!-- ================================================ -->
-
     <div>
 
         <h3
             style="
                 margin:
                     0 0 12px 0;
-                color: #1A1A2E;
-                font-size: 17px;
-                font-weight: 700;
+                color:
+                    #1A1A2E;
+                font-size:
+                    17px;
+                font-weight:
+                    700;
                 border-bottom:
-                    2px solid #999999;
-                padding-bottom: 8px;
+                    2px solid
+                    #999999;
+                padding-bottom:
+                    8px;
             "
         >
             Oportunidades anteriores aún activas
@@ -788,8 +898,10 @@ def _generar_secciones_diarias(
             style="
                 margin:
                     0 0 15px 0;
-                color: #777777;
-                font-size: 12px;
+                color:
+                    #777777;
+                font-size:
+                    12px;
             "
         >
             Estas oportunidades fueron detectadas
@@ -802,6 +914,10 @@ def _generar_secciones_diarias(
 
     """
 
+
+# ============================================================
+# GARANTÍAS
+# ============================================================
 
 def _celda_garantia(
     requiere,
@@ -824,7 +940,11 @@ def _celda_garantia(
     if not requiere:
 
         return """
-        <span style="color:#888;">
+        <span
+            style="
+                color:#888;
+            "
+        >
             No requiere
         </span>
         """
@@ -837,13 +957,17 @@ def _celda_garantia(
 
             texto += (
                 f" (${float(monto):,.0f})"
-                .replace(",", ".")
+                .replace(
+                    ",",
+                    ".",
+                )
             )
 
         except (
             ValueError,
             TypeError,
         ):
+
             pass
 
     return f"""
@@ -857,6 +981,10 @@ def _celda_garantia(
     </span>
     """
 
+
+# ============================================================
+# TABLA
+# ============================================================
 
 def _generar_tabla_html(
     licitaciones: list,
@@ -898,6 +1026,11 @@ def _generar_tabla_html(
             )
         )
 
+        monto = l.get(
+            "monto_formateado",
+            "No especificado",
+        )
+
         filas += f"""
         <tr>
 
@@ -907,8 +1040,10 @@ def _generar_tabla_html(
                         10px 8px;
                     border:
                         1px solid #e0e0e0;
-                    font-size: 12px;
-                    text-align: center;
+                    font-size:
+                        12px;
+                    text-align:
+                        center;
                 "
             >
                 <b>
@@ -922,8 +1057,10 @@ def _generar_tabla_html(
                         10px 8px;
                     border:
                         1px solid #e0e0e0;
-                    font-size: 11px;
-                    text-align: center;
+                    font-size:
+                        11px;
+                    text-align:
+                        center;
                 "
             >
                 {l.get('tipo', '')}
@@ -935,7 +1072,8 @@ def _generar_tabla_html(
                         10px 8px;
                     border:
                         1px solid #e0e0e0;
-                    font-size: 12px;
+                    font-size:
+                        12px;
                 "
             >
                 {nombre_corto}
@@ -947,8 +1085,10 @@ def _generar_tabla_html(
                         10px 8px;
                     border:
                         1px solid #e0e0e0;
-                    font-size: 11px;
-                    color: #555;
+                    font-size:
+                        11px;
+                    color:
+                        #555;
                 "
             >
                 {l.get('organismo', '')}
@@ -960,8 +1100,10 @@ def _generar_tabla_html(
                         10px 8px;
                     border:
                         1px solid #e0e0e0;
-                    font-size: 11px;
-                    text-align: center;
+                    font-size:
+                        11px;
+                    text-align:
+                        center;
                 "
             >
                 {l.get('region', '')}
@@ -973,15 +1115,17 @@ def _generar_tabla_html(
                         10px 8px;
                     border:
                         1px solid #e0e0e0;
-                    font-size: 11px;
-                    text-align: right;
-                    white-space: nowrap;
+                    font-size:
+                        11px;
+                    text-align:
+                        right;
+                    white-space:
+                        nowrap;
                 "
             >
-                {l.get(
-                    'monto_formateado',
-                    'No especificado'
-                )}
+                <b>
+                    {monto}
+                </b>
             </td>
 
             <td
@@ -990,9 +1134,12 @@ def _generar_tabla_html(
                         10px 8px;
                     border:
                         1px solid #e0e0e0;
-                    font-size: 11px;
-                    text-align: center;
-                    white-space: nowrap;
+                    font-size:
+                        11px;
+                    text-align:
+                        center;
+                    white-space:
+                        nowrap;
                 "
             >
                 <b>
@@ -1006,8 +1153,10 @@ def _generar_tabla_html(
                         10px 8px;
                     border:
                         1px solid #e0e0e0;
-                    font-size: 10px;
-                    text-align: center;
+                    font-size:
+                        10px;
+                    text-align:
+                        center;
                 "
             >
                 {_celda_garantia(
@@ -1026,8 +1175,10 @@ def _generar_tabla_html(
                         10px 8px;
                     border:
                         1px solid #e0e0e0;
-                    font-size: 10px;
-                    text-align: center;
+                    font-size:
+                        10px;
+                    text-align:
+                        center;
                 "
             >
                 {_celda_garantia(
@@ -1046,7 +1197,8 @@ def _generar_tabla_html(
                         10px 8px;
                     border:
                         1px solid #e0e0e0;
-                    text-align: center;
+                    text-align:
+                        center;
                 "
             >
 
@@ -1055,13 +1207,18 @@ def _generar_tabla_html(
                     style="
                         background-color:
                             {primary_color};
-                        color: white;
+                        color:
+                            white;
                         padding:
                             5px 14px;
-                        text-decoration: none;
-                        border-radius: 4px;
-                        font-size: 11px;
-                        font-weight: 600;
+                        text-decoration:
+                            none;
+                        border-radius:
+                            4px;
+                        font-size:
+                            11px;
+                        font-weight:
+                            600;
                         display:
                             inline-block;
                     "
@@ -1088,7 +1245,8 @@ def _generar_tabla_html(
                 'Segoe UI',
                 Arial,
                 sans-serif;
-            font-size: 12px;
+            font-size:
+                12px;
         "
     >
 
@@ -1108,8 +1266,10 @@ def _generar_tabla_html(
                         border:
                             1px solid
                             {primary_color};
-                        font-size: 11px;
-                        color: #fff;
+                        font-size:
+                            11px;
+                        color:
+                            #fff;
                     "
                 >
                     ID
@@ -1122,8 +1282,10 @@ def _generar_tabla_html(
                         border:
                             1px solid
                             {primary_color};
-                        font-size: 11px;
-                        color: #fff;
+                        font-size:
+                            11px;
+                        color:
+                            #fff;
                     "
                 >
                     Tipo
@@ -1136,9 +1298,12 @@ def _generar_tabla_html(
                         border:
                             1px solid
                             {primary_color};
-                        font-size: 11px;
-                        text-align: left;
-                        color: #fff;
+                        font-size:
+                            11px;
+                        text-align:
+                            left;
+                        color:
+                            #fff;
                     "
                 >
                     Nombre
@@ -1151,9 +1316,12 @@ def _generar_tabla_html(
                         border:
                             1px solid
                             {primary_color};
-                        font-size: 11px;
-                        text-align: left;
-                        color: #fff;
+                        font-size:
+                            11px;
+                        text-align:
+                            left;
+                        color:
+                            #fff;
                     "
                 >
                     Institución
@@ -1166,8 +1334,10 @@ def _generar_tabla_html(
                         border:
                             1px solid
                             {primary_color};
-                        font-size: 11px;
-                        color: #fff;
+                        font-size:
+                            11px;
+                        color:
+                            #fff;
                     "
                 >
                     Región
@@ -1180,8 +1350,10 @@ def _generar_tabla_html(
                         border:
                             1px solid
                             {primary_color};
-                        font-size: 11px;
-                        color: #fff;
+                        font-size:
+                            11px;
+                        color:
+                            #fff;
                     "
                 >
                     Monto
@@ -1194,8 +1366,10 @@ def _generar_tabla_html(
                         border:
                             1px solid
                             {primary_color};
-                        font-size: 11px;
-                        color: #fff;
+                        font-size:
+                            11px;
+                        color:
+                            #fff;
                     "
                 >
                     Cierra
@@ -1208,8 +1382,10 @@ def _generar_tabla_html(
                         border:
                             1px solid
                             {primary_color};
-                        font-size: 10px;
-                        color: #fff;
+                        font-size:
+                            10px;
+                        color:
+                            #fff;
                     "
                 >
                     Gtía. Seriedad
@@ -1222,8 +1398,10 @@ def _generar_tabla_html(
                         border:
                             1px solid
                             {primary_color};
-                        font-size: 10px;
-                        color: #fff;
+                        font-size:
+                            10px;
+                        color:
+                            #fff;
                     "
                 >
                     Gtía. Fiel Cump.
@@ -1236,8 +1414,10 @@ def _generar_tabla_html(
                         border:
                             1px solid
                             {primary_color};
-                        font-size: 11px;
-                        color: #fff;
+                        font-size:
+                            11px;
+                        color:
+                            #fff;
                     "
                 >
                     Link
@@ -1256,6 +1436,10 @@ def _generar_tabla_html(
     </table>
     """
 
+
+# ============================================================
+# IMÁGENES
+# ============================================================
 
 def obtener_imagenes_para_cid(
     categoria: str,

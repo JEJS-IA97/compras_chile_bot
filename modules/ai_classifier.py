@@ -16,10 +16,8 @@ from config.settings import GEMINI_API_KEY
 PRIMARY_MODEL = "gemini-3.5-flash-lite"
 FALLBACK_MODEL = "gemini-3.1-flash-lite"
 
-# Reintentos para errores temporales.
 MAX_RETRIES = 3
 
-# Backoff progresivo.
 RETRY_DELAYS = [
     2,
     5,
@@ -35,6 +33,7 @@ client = None
 
 
 if GEMINI_API_KEY:
+
     try:
 
         client = genai.Client(
@@ -65,9 +64,6 @@ else:
 # ============================================================
 
 def _respuesta_vacia() -> dict:
-    """
-    Respuesta segura cuando la IA no puede clasificar.
-    """
 
     return {
         "coimsa": False,
@@ -86,138 +82,176 @@ def _fallback_local(
     nombre: str,
     descripcion: str,
 ) -> dict:
-    """
-    Fallback determinístico para evitar perder oportunidades
-    muy claras cuando Gemini no está disponible.
-
-    SOLO aprueba coincidencias que representan productos
-    claramente relacionados con la línea comercial de Induwork.
-    """
 
     texto = (
         f"{nombre} {descripcion}"
     ).lower()
 
     patrones_fuertes = [
-        # Protección
+
+        # ====================================================
+        # PROTECCIÓN
+        # ====================================================
+
         "chaleco antibala",
         "chalecos antibalas",
+
         "chaleco balistico",
         "chalecos balisticos",
+
         "chaleco balístico",
         "chalecos balísticos",
+
         "chaleco anticorte",
         "chalecos anticorte",
+
         "panel antibala",
         "paneles antibalas",
+
         "panel balistico",
         "paneles balisticos",
+
         "panel balístico",
         "paneles balísticos",
+
         "casco balistico",
         "cascos balisticos",
+
         "casco balístico",
         "cascos balísticos",
-        "casco tactico",
-        "cascos tacticos",
-        "casco táctico",
-        "cascos tácticos",
 
-        # Botas
-        "botas tacticas",
-        "botas tácticas",
-        "bota tactica",
-        "bota táctica",
-        "botas militares",
-        "botas swat",
+        # ====================================================
+        # CHALECOS
+        # ====================================================
 
-        # Uniformes / vigilancia
-        "uniforme para guardias",
-        "uniformes para guardias",
-        "uniforme de guardias",
-        "uniformes de guardias",
-        "uniforme para vigilantes",
-        "uniformes para vigilantes",
-        "uniforme de vigilante",
-        "uniformes de vigilantes",
-        "vestuario para guardias",
-        "vestuario de guardias",
-        "vestuario para vigilantes",
-        "vestuario de vigilantes",
-        "pantalon de vigilancia",
-        "pantalón de vigilancia",
-        "casaca de vigilancia",
-        "camisa de vigilante",
-        "camisa para vigilante",
-
-        # Bastones
-        "baston retractil",
-        "bastón retráctil",
-        "bastones retractiles",
-        "bastones retráctiles",
-        "baston tactico",
-        "bastón táctico",
-        "bastones tacticos",
-        "bastones tácticos",
-        "baston de proteccion",
-        "bastón de protección",
-        "bastones de proteccion",
-        "bastones de protección",
-
-        # Portarevólver / fundas
-        "portarevolver",
-        "portarevólver",
-        "porta revolver",
-        "porta revólver",
-        "funda para revolver",
-        "funda para revólver",
-        "funda de paleta para revolver",
-        "funda de paleta para revólver",
-        "pistolera tactica",
-        "pistolera táctica",
-        "pistolera militar",
-        "pistoleras tacticas",
-        "pistoleras tácticas",
-
-        # Equipamiento táctico
-        "equipamiento tactico",
-        "equipamiento táctico",
-        "equipo tactico",
-        "equipo táctico",
-        "equipos tacticos",
-        "equipos tácticos",
-        "elementos tacticos",
-        "elementos tácticos",
-
-        # Chalecos tácticos
         "chaleco tactico",
         "chaleco táctico",
         "chalecos tacticos",
         "chalecos tácticos",
 
-        # Guantes tácticos
-        "guante tactico",
-        "guante táctico",
-        "guantes tacticos",
-        "guantes tácticos",
+        "chaleco geologo",
+        "chalecos geologos",
 
-        # Cinturones tácticos
-        "cinturon tactico",
-        "cinturón táctico",
-        "cinturones tacticos",
-        "cinturones tácticos",
+        "chaleco geólogo",
+        "chalecos geólogos",
 
-        # Mochilas tácticas
-        "mochila tactica",
-        "mochila táctica",
-        "mochilas tacticas",
-        "mochilas tácticas",
-
-        # Reflectantes
         "chaleco reflectante",
         "chalecos reflectantes",
+
+        # ====================================================
+        # BOTAS
+        # ====================================================
+
+        "botas tacticas",
+        "botas tácticas",
+
+        "bota tactica",
+        "bota táctica",
+
+        "botas militares",
+        "bota militar",
+
+        "botas swat",
+
+        # ====================================================
+        # UNIFORMES / VIGILANCIA
+        # ====================================================
+
+        "uniforme para guardias",
+        "uniformes para guardias",
+
+        "uniforme de guardias",
+        "uniformes de guardias",
+
+        "uniforme para vigilantes",
+        "uniformes para vigilantes",
+
+        "uniforme de vigilantes",
+        "uniformes de vigilantes",
+
+        "vestuario para guardias",
+        "vestuario de guardias",
+
+        "vestuario para vigilantes",
+        "vestuario de vigilantes",
+
+        "pantalon de vigilancia",
+        "pantalón de vigilancia",
+
+        "casaca de vigilancia",
+
+        "camisa de vigilante",
+        "camisa para vigilante",
+
+        # ====================================================
+        # BASTONES
+        # ====================================================
+
+        "baston retractil",
+        "bastón retráctil",
+
+        "bastones retractiles",
+        "bastones retráctiles",
+
+        "baston tactico",
+        "bastón táctico",
+
+        "bastones tacticos",
+        "bastones tácticos",
+
+        "baston de proteccion",
+        "bastón de protección",
+
+        "bastones de proteccion",
+        "bastones de protección",
+
+        # ====================================================
+        # PORTAREVÓLVERES / FUNDAS
+        # ====================================================
+
+        "portarevolver",
+        "portarevólver",
+
+        "porta revolver",
+        "porta revólver",
+
+        "funda para revolver",
+        "funda para revólver",
+
+        "funda de paleta para revolver",
+        "funda de paleta para revólver",
+
+        "pistolera tactica",
+        "pistolera táctica",
+
+        "pistolera militar",
+
+        "pistoleras tacticas",
+        "pistoleras tácticas",
+
+        # ====================================================
+        # EQUIPAMIENTO
+        # ====================================================
+
+        "equipamiento tactico",
+        "equipamiento táctico",
+
+        "equipo tactico",
+        "equipo táctico",
+
+        "equipos tacticos",
+        "equipos tácticos",
+
+        "elementos tacticos",
+        "elementos tácticos",
+
+        # ====================================================
+        # REFLECTANTES
+        # ====================================================
+
         "arnes reflectante",
         "arnés reflectante",
+
         "arneses reflectantes",
     ]
 
@@ -228,6 +262,7 @@ def _fallback_local(
     ]
 
     if not patrones_encontrados:
+
         return _respuesta_vacia()
 
     return {
@@ -255,21 +290,26 @@ def _crear_prompt(
 ) -> str:
 
     return f"""
-Eres un clasificador de licitaciones públicas de Chile
+Eres un clasificador de oportunidades de compra pública
 para INDUWORK.
 
-Tu tarea es determinar si una licitación puede ser una
-oportunidad comercial razonablemente relevante para Induwork.
+Tu única tarea es decidir si el OBJETO REAL de la compra
+representa una oportunidad comercial razonablemente compatible
+con la línea de productos de Induwork.
 
-La licitación YA superó un primer filtro de palabras clave.
-Tu trabajo ahora es interpretar el CONTEXTO y el OBJETO REAL
-de la compra.
+La oportunidad ya pasó un pre-filtro.
 
-No necesitas que el producto aparezca literalmente en el
-catálogo actual.
+IMPORTANTE:
+NO debes decidir solamente por una palabra.
 
-Induwork puede cotizar o conseguir productos nuevos siempre
-que pertenezcan claramente a la misma línea comercial.
+Debes analizar el contexto completo, especialmente:
+
+- título;
+- descripción;
+- productos solicitados;
+- destino de los productos;
+- organismo o unidad compradora cuando aparezca;
+- si realmente se compra un BIEN FÍSICO.
 
 ============================================================
 LÍNEA COMERCIAL DE INDUWORK
@@ -278,6 +318,7 @@ LÍNEA COMERCIAL DE INDUWORK
 Induwork trabaja principalmente con:
 
 PROTECCIÓN PERSONAL
+
 - chalecos anticorte;
 - chalecos antibalas;
 - chalecos balísticos;
@@ -289,6 +330,7 @@ PROTECCIÓN PERSONAL
 - fundas para chalecos.
 
 EQUIPAMIENTO TÁCTICO
+
 - chalecos tácticos;
 - cascos tácticos;
 - uniformes tácticos;
@@ -313,6 +355,7 @@ EQUIPAMIENTO TÁCTICO
 - accesorios tácticos.
 
 VESTUARIO DE SEGURIDAD
+
 - uniformes para guardias;
 - uniformes para vigilantes;
 - pantalones de vigilancia;
@@ -324,125 +367,67 @@ VESTUARIO DE SEGURIDAD
 - arneses reflectantes.
 
 CALZADO
+
 - botas tácticas;
 - botas militares;
+- botas SWAT;
+- botas para guardias;
+- botas para vigilantes;
 - botas de seguridad relacionadas con
   seguridad, vigilancia o equipamiento táctico.
 
-También puede interesar cualquier PRODUCTO NUEVO que sea
-razonablemente equivalente, complementario o perteneciente
-a estas mismas familias.
+PRODUCTOS ADICIONALES COMPATIBLES
+
+También puede interesar un producto que no esté
+literalmente en el catálogo actual si pertenece claramente
+a la misma familia comercial.
+
+Ejemplos:
+
+- chaleco geólogo;
+- chaleco de terreno;
+- chaleco institucional;
+- prendas físicas utilizadas por inspectores;
+- vestuario físico para personal operativo;
+- equipamiento físico para personal de seguridad;
+- accesorios de portación relacionados con seguridad.
+
+El catálogo actual es una REFERENCIA, NO una lista cerrada.
 
 ============================================================
 REGLA PRINCIPAL
 ============================================================
 
-APRUEBA si el objeto real de la licitación es comprar,
-adquirir, suministrar, proveer o entregar un PRODUCTO FÍSICO
-relacionado con:
+APRUEBA cuando el OBJETO REAL sea adquirir un PRODUCTO FÍSICO
+que razonablemente pueda ser vendido o suministrado por
+Induwork o conseguido por Induwork dentro de su misma línea.
 
-- equipamiento táctico;
-- protección personal;
-- vestuario para guardias;
-- vestuario para vigilantes;
-- seguridad personal;
-- protección balística;
-- protección anticorte;
-- protección antipunzón;
-- calzado táctico o de seguridad;
-- bastones de protección;
-- portarevólveres;
-- fundas;
-- pistoleras;
-- accesorios tácticos;
-- productos equivalentes o complementarios.
+No es necesario que el nombre del producto coincida
+exactamente con el catálogo.
 
 ============================================================
-NO EXIJAS EL PRODUCTO EXACTO
+CASO IMPORTANTE: CHALECO GEÓLOGO
 ============================================================
 
-El catálogo actual es una REFERENCIA.
+Una compra como:
 
-NO significa que Induwork solo pueda vender esos modelos.
+"Se solicita cotizar chaleco geólogo con logos bordados
+para uso director de control"
 
-Ejemplo:
+puede ser RELEVANTE.
 
-Catálogo actual:
-"Botas Tácticas Militares Delta"
+No rechaces una oportunidad simplemente porque diga
+"geólogo".
 
-Licitación:
-"Botas Tácticas marca X"
+Debes entender que el objeto real es un CHALECO FÍSICO.
 
-=> RELEVANTE.
-
-Catálogo actual:
-"Chaleco Balístico Molle IIIA"
-
-Licitación:
-"Chaleco antibalas nivel IIIA de otro fabricante"
-
-=> RELEVANTE.
-
-Catálogo actual:
-"Funda de Paleta para Revólver"
-
-Licitación:
-"Portarevólver para personal de seguridad"
-
-=> RELEVANTE.
-
-============================================================
-TÁCTICO / TÁCTICA
-============================================================
-
-La palabra "táctico" puede referirse a un producto o a
-una actividad/servicio.
-
-PRODUCTO:
-
-"Botas tácticas"
-=> RELEVANTE.
-
-"Uniformes tácticos"
-=> RELEVANTE.
-
-"Chalecos tácticos"
-=> RELEVANTE.
-
-"Guantes tácticos"
-=> RELEVANTE.
-
-"Bastón táctico"
-=> RELEVANTE.
-
-"Equipamiento táctico"
-=> RELEVANTE si se refiere a bienes físicos.
-
-ACTIVIDAD O SERVICIO:
-
-"Capacitación táctica"
-=> NO RELEVANTE.
-
-"Curso táctico"
-=> NO RELEVANTE.
-
-"Entrenamiento táctico"
-=> NO RELEVANTE.
-
-"Planificación táctica"
-=> NO RELEVANTE.
-
-"Operación táctica"
-=> NO RELEVANTE.
-
-"Servicio táctico"
-=> NO RELEVANTE.
+Analiza además el destino institucional y el uso del producto.
 
 ============================================================
 BOTAS
 ============================================================
 
-Las botas son relevantes para Induwork cuando son:
+Son RELEVANTES:
 
 - botas tácticas;
 - botas militares;
@@ -452,97 +437,145 @@ Las botas son relevantes para Induwork cuando son:
 - botas de seguridad destinadas a personal operativo,
   seguridad pública, vigilancia o similares.
 
-IMPORTANTE:
-
-No rechaces una licitación de botas tácticas porque la
-descripción use una denominación más genérica como
-"botas de seguridad".
-
 Ejemplo:
 
 Título:
-"Botas Tácticas para DISEPT"
+"COMPRA DE BOTAS TACTICAS PROFESIONAL"
+
+=> RELEVANTE.
 
 Descripción:
-"Adquisición de botas de seguridad para la Dirección
-de Seguridad Pública y Territorial."
+"Solicitud de compra de botas tácticas para personal."
 
 => RELEVANTE.
+
+Incluso si la descripción dice simplemente
+"botas de seguridad", analiza el contexto completo.
 
 ============================================================
-UNIFORMES DE GUARDIAS Y VIGILANTES
+UNIFORMES
 ============================================================
 
-Las licitaciones de vestuario físico para guardias,
-vigilantes o personal de seguridad son RELEVANTES.
+RELEVANTE:
 
-Ejemplos:
-
-"Adquisición de uniformes para guardias"
-=> RELEVANTE.
-
-"Uniformes para vigilantes"
-=> RELEVANTE.
-
-"Pantalones para guardias"
-=> RELEVANTE.
-
-"Casacas para vigilantes"
-=> RELEVANTE.
-
-"Camisas institucionales para vigilantes"
-=> RELEVANTE.
+- uniformes para guardias;
+- uniformes para vigilantes;
+- vestuario de vigilancia;
+- pantalones para guardias;
+- casacas para vigilantes;
+- camisas para vigilantes;
+- prendas físicas institucionales para personal operativo.
 
 ============================================================
-BASTONES Y PORTAREVÓLVERES
+BASTONES
 ============================================================
 
-Son productos relevantes:
+RELEVANTE:
 
 - bastones retráctiles;
 - bastones tácticos;
 - bastones de protección personal;
-- porta bastones;
+- porta bastones.
+
+============================================================
+PORTAREVÓLVERES / FUNDAS
+============================================================
+
+RELEVANTE:
+
 - portarevólveres;
 - fundas para revólver;
 - pistoleras;
 - fundas tácticas;
-- accesorios para portar equipamiento.
+- accesorios de portación para personal de seguridad.
 
 ============================================================
 REFLECTANTES
 ============================================================
 
-Pueden ser relevantes:
+RELEVANTE cuando sean prendas físicas:
 
 - chalecos reflectantes;
 - arneses reflectantes;
 - prendas reflectantes;
 - vestuario reflectante.
 
-Especialmente cuando están destinados a personal
-de seguridad, vigilancia, trabajo operativo o similares.
+Especialmente para seguridad, vigilancia, inspectores,
+trabajo operativo o actividades institucionales.
+
+============================================================
+TÁCTICO / TÁCTICA
+============================================================
+
+Las variantes:
+
+- tactica;
+- tacticas;
+- táctica;
+- tácticas;
+- tactico;
+- tacticos;
+- táctico;
+- tácticos;
+
+pueden representar productos o servicios.
+
+PRODUCTO:
+
+"Botas tácticas"
+=> RELEVANTE.
+
+"Chalecos tácticos"
+=> RELEVANTE.
+
+"Uniformes tácticos"
+=> RELEVANTE.
+
+"Bastón táctico"
+=> RELEVANTE.
+
+"Equipamiento táctico"
+=> RELEVANTE si corresponde a bienes físicos.
+
+SERVICIO:
+
+"Curso táctico"
+=> NO RELEVANTE.
+
+"Capacitación táctica"
+=> NO RELEVANTE.
+
+"Entrenamiento táctico"
+=> NO RELEVANTE.
+
+"Planificación táctica"
+=> NO RELEVANTE.
+
+"Servicio táctico"
+=> NO RELEVANTE.
 
 ============================================================
 SEGURIDAD
 ============================================================
 
-La palabra "seguridad" por sí sola NO es suficiente.
+La palabra "seguridad" sola NO es suficiente.
 
 NO RELEVANTE:
 
 "Servicio de seguridad para edificio."
 
-Pero:
+RELEVANTE:
 
-"Adquisición de botas de seguridad para personal
-de Seguridad Pública."
+"Adquisición de botas de seguridad para Seguridad Pública."
 
-=> RELEVANTE si el contexto identifica las botas
-como producto físico compatible con la línea.
+RELEVANTE:
+
+"Chalecos para inspectores de seguridad."
+
+La diferencia es que debemos identificar el BIEN FÍSICO.
 
 ============================================================
-CASOS QUE DEBES RECHAZAR
+NO RELEVANTE
 ============================================================
 
 Rechaza:
@@ -565,8 +598,8 @@ Rechaza:
 - desarrollo informático;
 - obras;
 - servicios administrativos;
-- servicios de transporte;
-- productos completamente ajenos a la línea.
+- transporte;
+- cualquier producto completamente ajeno.
 
 ============================================================
 TÍTULO
@@ -578,24 +611,23 @@ TÍTULO
 DESCRIPCIÓN
 ============================================================
 
-{descripcion[:4000]}
+{descripcion[:6000]}
 
 ============================================================
 DECISIÓN
 ============================================================
 
-Responde RELEVANTE cuando exista una relación comercial
-clara con la línea de Induwork.
+Sé permisivo cuando exista un PRODUCTO FÍSICO compatible
+con la línea comercial de Induwork.
 
 No seas excesivamente restrictivo.
 
-Un producto nuevo puede ser relevante si pertenece
-claramente a la misma familia comercial.
+Un producto nuevo puede ser relevante.
 
-Tampoco apruebes una licitación solo porque mencione
-"seguridad", "táctica" o "protección" incidentalmente.
+Pero no apruebes una oportunidad únicamente porque mencione
+"seguridad", "protección", "táctico" o "vigilancia".
 
-Analiza el objeto real de compra.
+Determina el OBJETO REAL de compra.
 
 ============================================================
 RESPUESTA
@@ -606,9 +638,7 @@ Responde ÚNICAMENTE JSON válido:
 {{
     "relevante": true,
     "motivo": "explicación breve y concreta",
-    "terminos_detectados": [
-        "término"
-    ]
+    "terminos_detectados": ["término"]
 }}
 
 o:
@@ -616,24 +646,24 @@ o:
 {{
     "relevante": false,
     "motivo": "explicación breve y concreta",
-    "terminos_detectados": [
-        "término"
-    ]
+    "terminos_detectados": ["término"]
 }}
 
-No agregues ningún texto fuera del JSON.
+No agregues texto fuera del JSON.
 """
 
 
 # ============================================================
-# DETECTAR ERROR TRANSITORIO
+# ERROR TRANSITORIO
 # ============================================================
 
 def _es_error_transitorio(
     error,
 ) -> bool:
 
-    mensaje = str(error).upper()
+    mensaje = str(
+        error
+    ).upper()
 
     return any(
         codigo in mensaje
@@ -651,7 +681,7 @@ def _es_error_transitorio(
 
 
 # ============================================================
-# LLAMADA A GEMINI
+# CONSULTA GEMINI
 # ============================================================
 
 def _consultar_modelo(
@@ -741,10 +771,6 @@ def clasificar_con_gemini(
     descripcion: str,
 ) -> dict:
 
-    # --------------------------------------------------------
-    # Si no hay cliente, utilizar fallback local.
-    # --------------------------------------------------------
-
     if client is None:
 
         print(
@@ -757,12 +783,13 @@ def clasificar_con_gemini(
             descripcion,
         )
 
-    # --------------------------------------------------------
-    # PRIMER MODELO
-    # --------------------------------------------------------
+    # ========================================================
+    # MODELO PRINCIPAL
+    # ========================================================
 
     print(
-        f"🤖 Gemini: intentando {PRIMARY_MODEL}..."
+        f"🤖 Gemini: intentando "
+        f"{PRIMARY_MODEL}..."
     )
 
     for intento in range(
@@ -783,7 +810,9 @@ def clasificar_con_gemini(
 
         except Exception as e:
 
-            if not _es_error_transitorio(e):
+            if not _es_error_transitorio(
+                e
+            ):
 
                 print(
                     "⚠️ Error no transitorio "
@@ -800,10 +829,8 @@ def clasificar_con_gemini(
 
                 print(
                     f"⚠️ {PRIMARY_MODEL} "
-                    f"devolvió error transitorio "
-                    f"({e}). "
-                    f"Reintentando en "
-                    f"{espera}s..."
+                    "devolvió error transitorio. "
+                    f"Reintentando en {espera}s..."
                 )
 
                 time.sleep(
@@ -817,9 +844,9 @@ def clasificar_con_gemini(
                     "agotó los reintentos."
                 )
 
-    # --------------------------------------------------------
+    # ========================================================
     # MODELO DE RESPALDO
-    # --------------------------------------------------------
+    # ========================================================
 
     print(
         f"🔄 Gemini: intentando modelo "
@@ -849,7 +876,9 @@ def clasificar_con_gemini(
 
         except Exception as e:
 
-            if not _es_error_transitorio(e):
+            if not _es_error_transitorio(
+                e
+            ):
 
                 print(
                     "⚠️ Error no transitorio "
@@ -866,9 +895,8 @@ def clasificar_con_gemini(
 
                 print(
                     f"⚠️ {FALLBACK_MODEL} "
-                    f"devolvió error transitorio. "
-                    f"Reintentando en "
-                    f"{espera}s..."
+                    "devolvió error transitorio. "
+                    f"Reintentando en {espera}s..."
                 )
 
                 time.sleep(
@@ -882,15 +910,14 @@ def clasificar_con_gemini(
                     "agotó los reintentos."
                 )
 
-    # --------------------------------------------------------
+    # ========================================================
     # FALLBACK LOCAL
-    # --------------------------------------------------------
+    # ========================================================
 
     print(
-        "🛟 Gemini no respondió después de "
-        "los reintentos. Aplicando fallback "
-        "local para evitar perder una "
-        "oportunidad claramente relevante."
+        "🛟 Gemini no respondió después "
+        "de los reintentos. Aplicando "
+        "fallback local."
     )
 
     resultado_local = _fallback_local(
@@ -902,14 +929,14 @@ def clasificar_con_gemini(
 
         print(
             "✅ Fallback local APROBÓ "
-            "la licitación."
+            "la oportunidad."
         )
 
-        return resultado_local
+    else:
 
-    print(
-        "⛔ Fallback local no encontró "
-        "evidencia suficiente."
-    )
+        print(
+            "⛔ Fallback local no encontró "
+            "un patrón suficientemente fuerte."
+        )
 
-    return _respuesta_vacia()
+    return resultado_local
