@@ -8,6 +8,7 @@ on:
 jobs:
   fast-check:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -21,7 +22,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-            - name: Run fast check
+      - name: Run fast check
         env:
           CHILECOMPRA_TICKET: ${{ secrets.CHILECOMPRA_TICKET }}
           MONGO_URI: ${{ secrets.MONGO_URI }}
@@ -29,10 +30,8 @@ jobs:
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
           SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
-
           DEST_INDUWORK: ${{ secrets.DEST_INDUWORK }}
           DEST_COIMSA: ${{ secrets.DEST_COIMSA }}
           DEST_ESPECIAL: ${{ secrets.DEST_ESPECIAL }}
-
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python -u run_cron.py fast-check
