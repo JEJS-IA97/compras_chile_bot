@@ -5,7 +5,11 @@ import datetime
 from zoneinfo import ZoneInfo
 import requests
 from config.database import get_db
-from modules.filters import evaluar_licitacion, posible_relevante
+from modules.filters import (
+    evaluar_licitacion,
+    posible_relevante,
+    contiene_keyword_induwork,
+)
 from modules.ai_classifier import clasificar_con_gemini
 
 CL_TZ = ZoneInfo("America/Santiago")
@@ -165,8 +169,16 @@ def procesar_y_guardar_licitaciones():
     if not licitaciones_crudas:
         return nuevas_relevantes
 
-    candidatas = licitaciones_crudas
-    print(f"🔍 Procesando {len(candidatas)} licitaciones...")
+    candidatas = [
+        lic for lic in licitaciones_crudas
+        if posible_relevante(
+            f"{lic.get('Nombre', '')} {lic.get('Descripcion', '')}"
+        )
+    ]
+    print(
+        f"🔍 {len(candidatas)} candidatas de {len(licitaciones_crudas)} "
+        "licitaciones recibidas."
+    )
 
     ahora = datetime.datetime.now(CL_TZ).replace(tzinfo=None)
 
@@ -182,37 +194,46 @@ def procesar_y_guardar_licitaciones():
 
         licitacion_mapeada = _mapear_licitacion(lic, detalle)
 
-        # Descartar si ya cerró
         fecha_cierre_dt = _parsear_fecha(licitacion_mapeada["fecha_cierre"])
         if fecha_cierre_dt and fecha_cierre_dt < ahora:
             print(f"⏭️ {codigo} ya cerró ({licitacion_mapeada['fecha_cierre']}), se descarta.")
             continue
 
-        # --- CLASIFICACIÓN CON FILTRO DE KEYWORDS ---
         clasificacion = evaluar_licitacion(licitacion_mapeada)
 
-        # Si NO clasifica con el filtro, preguntar a Gemini
-        if not (clasificacion["coimsa"] or clasificacion["induwork"] or clasificacion["especial"]):
-            texto = licitacion_mapeada.get("nombre", "").lower() + " " + licitacion_mapeada.get("descripcion", "").lower()
-            palabras_clave_para_ia = ["seguridad", "proteccion", "protección", "vigilancia", "cámara", "camara", "cctv", "alarma", "cascos", "chaleco"]
-            if any(p in texto for p in palabras_clave_para_ia):
-                print(f"🔎 {codigo} no clasificó por keywords. Consultando a Gemini...")
-                clasificacion_ia = clasificar_con_gemini(
-                    licitacion_mapeada.get("nombre", ""),
-                    licitacion_mapeada.get("descripcion", "")
-                )
-                if clasificacion_ia["coimsa"] or clasificacion_ia["induwork"] or clasificacion_ia["especial"]:
-                    categoria = next((k for k, v in clasificacion_ia.items() if v), "ninguna")
-                    print(f"🤖 Gemini dice que {codigo} es relevante para {categoria}")
-                    clasificacion = clasificacion_ia
-                else:
-                    print(f"⏭️ {codigo} no clasifica (ni por keywords ni por IA).")
-                    continue
-            else:
-                print(f"⏭️ {codigo} no clasifica por keywords y no contiene palabras clave para IA.")
-                continue
+        texto = (
+            f"{licitacion_mapeada.get('nombre', '')} "
+            f"{licitacion_mapeada.get('descripcion', '')}"
+        )
 
-        # Si clasifica (por keywords o por IA), guardar
+        # Induwork: keyword -> Gemini -> aprobación/rechazo.
+        # Nunca se aprueba solo por contener una palabra.
+        if contiene_keyword_induwork(texto):
+            print(f"🔎 {codigo} coincide con búsqueda Induwork. Validando con Gemini...")
+            clasificacion_ia = clasificar_con_gemini(
+                licitacion_mapeada.get("nombre", ""),
+                licitacion_mapeada.get("descripcion", "")
+            )
+
+            clasificacion["induwork"] = clasificacion_ia["induwork"]
+
+            if clasificacion_ia["induwork"]:
+                licitacion_mapeada["validacion_ia_induwork"] = {
+                    "motivo": clasificacion_ia.get("motivo", ""),
+                    "terminos_detectados": clasificacion_ia.get("terminos_detectados", []),
+                }
+                print(
+                    f"🤖 Gemini aprobó {codigo} para Induwork"
+                    f" | términos: {clasificacion_ia.get('terminos_detectados', [])}"
+                    f" | motivo: {clasificacion_ia.get('motivo', '')}"
+                )
+            else:
+                print(f"⏭️ Gemini descartó {codigo} para Induwork.")
+
+        if not (clasificacion["coimsa"] or clasificacion["induwork"] or clasificacion["especial"]):
+            print(f"⏭️ {codigo} no clasifica para ninguna categoría.")
+            continue
+
         licitacion_mapeada["clasificacion"] = clasificacion
         licitacion_mapeada["fecha_captura"] = datetime.datetime.utcnow()
 
@@ -296,21 +317,41 @@ def simular_scraping_compra_agil_urgente():
                 "tipo": "Compra Ágil",
                 "monto_estimado": detalle.get("monto_estimado") or item.get("monto_estimado"),
                 "moneda": detalle.get("moneda", "CLP"),
-                "monto_formateado": _formatear_monto(detalle.get("monto_estimado") or item.get("monto_estimado"), detalle.get("moneda", "CLP")),
+                "monto_formateado": _formatear_monto(
+                    detalle.get("monto_estimado") or item.get("monto_estimado"),
+                    detalle.get("moneda", "CLP")
+                ),
                 "requiere_garantia_seriedad": False,
                 "requiere_garantia_fiel_cumplimiento": False,
             }
 
             clasificacion = evaluar_licitacion(compra_mapeada)
 
-            # Si no clasifica, usar IA
-            if not (clasificacion["coimsa"] or clasificacion["induwork"] or clasificacion["especial"]):
+            texto = (
+                f"{compra_mapeada.get('nombre', '')} "
+                f"{compra_mapeada.get('descripcion', '')}"
+            )
+
+            # Compra Ágil: mantener el mismo filtro estricto para Induwork.
+            if contiene_keyword_induwork(texto):
+                print(f"🔎 {codigo_ca} coincide con búsqueda Induwork. Validando con Gemini...")
                 clasificacion_ia = clasificar_con_gemini(
                     compra_mapeada.get("nombre", ""),
                     compra_mapeada.get("descripcion", "")
                 )
-                if clasificacion_ia["coimsa"] or clasificacion_ia["induwork"] or clasificacion_ia["especial"]:
-                    clasificacion = clasificacion_ia
+                clasificacion["induwork"] = clasificacion_ia["induwork"]
+
+                if clasificacion_ia["induwork"]:
+                    compra_mapeada["validacion_ia_induwork"] = {
+                        "motivo": clasificacion_ia.get("motivo", ""),
+                        "terminos_detectados": clasificacion_ia.get("terminos_detectados", []),
+                    }
+                    print(
+                        f"🤖 Gemini aprobó {codigo_ca} para Induwork"
+                        f" | términos: {clasificacion_ia.get('terminos_detectados', [])}"
+                    )
+                else:
+                    print(f"⏭️ Gemini descartó {codigo_ca} para Induwork.")
 
             if clasificacion["coimsa"] or clasificacion["induwork"] or clasificacion["especial"]:
                 compra_mapeada["clasificacion"] = clasificacion

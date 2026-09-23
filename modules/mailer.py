@@ -14,33 +14,28 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", 465))
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
 
-# ============================================================
-# DESTINATARIOS POR TIPO DE TAREA (MODO PRUEBA)
-# ============================================================
-DEST_PRUEBA_GERENCIA = "gerencia@induwork.cl"
+# Modo prueba: las tres categorías envían a soporte@induwork.cl.
+DEST_PRUEBA_GERENCIA = "soporte@induwork.cl"
 DEST_PRUEBA_SOPORTE = "soporte@induwork.cl"
 
-# Destinatarios originales (para cuando se quiera volver a producción)
+# Destinatarios originales (para producción).
 DEST_INDUWORK_ORIGINAL = os.getenv("DEST_INDUWORK", "asaravia@induwork.cl")
 DEST_COIMSA_ORIGINAL = os.getenv("DEST_COIMSA", "asaravia@induwork.cl")
 DEST_ESPECIAL_ORIGINAL = os.getenv("DEST_ESPECIAL", "proyectos@induwork.cl")
 
-# ============================================================
-# CONFIGURACIÓN POR CATEGORÍA
-# ============================================================
 CONFIG_CATEGORIAS = {
     "induwork": {
-        "destinatario": DEST_PRUEBA_GERENCIA,
+        "destinatario": DEST_PRUEBA_SOPORTE,
         "remitente_nombre": "Induwork",
         "logo_clave": "INDUWORK",
     },
     "coimsa": {
-        "destinatario": DEST_PRUEBA_GERENCIA,
+        "destinatario": DEST_PRUEBA_SOPORTE,
         "remitente_nombre": "Coimsa",
         "logo_clave": "COIMSASPA",
     },
     "especial": {
-        "destinatario": DEST_PRUEBA_GERENCIA,
+        "destinatario": DEST_PRUEBA_SOPORTE,
         "remitente_nombre": "MVI",
         "logo_clave": "MVI",
     },
@@ -73,7 +68,6 @@ def enviar_correo_categoria(
     cfg = CONFIG_CATEGORIAS[categoria]
     destinatario = destinatario_override or cfg["destinatario"]
 
-    # Generar el HTML con la plantilla dinámica
     html_content = generar_html_correo(
         categoria=categoria,
         licitaciones=licitaciones,
@@ -81,24 +75,20 @@ def enviar_correo_categoria(
         cuerpo_extra_html=cuerpo_extra_html,
     )
 
-    # Construir el mensaje
     msg = MIMEMultipart("related")
     msg["Subject"] = asunto
     msg["From"] = f"{cfg['remitente_nombre']} - Bot Mercado Público <{EMAIL_USER}>"
     msg["To"] = destinatario
 
-    # Adjuntar HTML
     alt = MIMEMultipart("alternative")
     msg.attach(alt)
     alt.attach(MIMEText(html_content, "html", "utf-8"))
 
-    # Obtener imágenes y adjuntarlas como CID
     imagenes = obtener_imagenes_para_cid(categoria)
     for cid, ruta in imagenes.items():
         if ruta and os.path.exists(ruta):
             _adjuntar_imagen_como_cid(msg, ruta, cid)
 
-    # Enviar
     exito = _enviar_smtp(msg, destinatario)
     if exito:
         print(f"✅ Correo [{categoria}] enviado exitosamente a {destinatario}")
@@ -113,7 +103,6 @@ def _adjuntar_imagen_como_cid(msg, ruta, cid):
     Especifica explícitamente el tipo MIME para evitar errores.
     """
     try:
-        # Determinar el tipo MIME basado en la extensión
         ext = os.path.splitext(ruta)[1].lower()
         if ext == '.jpg' or ext == '.jpeg':
             mime_type = 'image/jpeg'
@@ -122,15 +111,13 @@ def _adjuntar_imagen_como_cid(msg, ruta, cid):
         elif ext == '.gif':
             mime_type = 'image/gif'
         else:
-            # Intentar adivinar automáticamente
             mime_type = mimetypes.guess_type(ruta)[0] or 'image/jpeg'
-        
+
         print(f"📎 Adjuntando {ruta} como {mime_type}")
-        
+
         with open(ruta, "rb") as f:
             img_data = f.read()
-        
-        # Crear MIMEImage con el tipo específico
+
         img = MIMEImage(img_data, _subtype=mime_type.split('/')[-1])
         img.add_header("Content-ID", f"<{cid}>")
         img.add_header("Content-Disposition", "inline", filename=os.path.basename(ruta))
@@ -159,19 +146,15 @@ def _enviar_smtp(msg, destinatario):
         return False
 
 
-# ============================================================
-# FUNCIONES DE AYUDA PARA CAMBIAR MODO (PRUEBA / PRODUCCIÓN)
-# ============================================================
-
 def set_modo_prueba():
-    """Cambia todos los destinatarios a gerencia@induwork.cl"""
+    """Cambia todos los destinatarios a soporte@induwork.cl."""
     for categoria in CONFIG_CATEGORIAS:
-        CONFIG_CATEGORIAS[categoria]["destinatario"] = DEST_PRUEBA_GERENCIA
-    print("🔧 Modo PRUEBA activado: todos los correos van a gerencia@induwork.cl")
+        CONFIG_CATEGORIAS[categoria]["destinatario"] = DEST_PRUEBA_SOPORTE
+    print("🔧 Modo PRUEBA activado: todos los correos van a soporte@induwork.cl")
 
 
 def set_modo_produccion():
-    """Restaura los destinatarios originales"""
+    """Restaura los destinatarios originales."""
     CONFIG_CATEGORIAS["induwork"]["destinatario"] = DEST_INDUWORK_ORIGINAL
     CONFIG_CATEGORIAS["coimsa"]["destinatario"] = DEST_COIMSA_ORIGINAL
     CONFIG_CATEGORIAS["especial"]["destinatario"] = DEST_ESPECIAL_ORIGINAL

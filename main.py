@@ -25,8 +25,9 @@ else:
 
 CL_TZ = ZoneInfo("America/Santiago")
 
+
 def _enviar_por_categoria(items, hora_local, prefijo_asunto, es_alerta_urgente=False):
-    """Reparte una lista de items ya clasificados a los 3 correos según corresponda."""
+    """Reparte una lista de items ya clasificados a los 3 correos."""
     grupos = agrupar_por_empresa(items)
 
     if grupos["coimsa"]:
@@ -76,6 +77,7 @@ def tarea_reporte_diario():
     _enviar_por_categoria(nuevas, hora_local, "📋 Nuevas Oportunidades")
     print("📨 Correo(s) diario(s) enviado(s).")
 
+
 def _armar_cuerpo_resumen(nombre_categoria, items, dias_texto):
     from modules.scraper import contar_por_tipo
     conteo = contar_por_tipo(items)
@@ -109,6 +111,7 @@ def _reporte_periodo(desde, hasta, hora_local, prefijo_asunto, dias_texto):
             cuerpo_extra_html=cuerpo_extra,
         )
 
+
 def tarea_reporte_semanal():
     hora_local = datetime.now(CL_TZ).strftime("%H:%M")
     ahora_utc = datetime.utcnow()
@@ -132,10 +135,10 @@ def tarea_reporte_mensual():
     print(f"🗓️ Reporte Mensual ({hora_local} hora Chile) — mes: {nombre_mes}")
     _reporte_periodo(desde_utc, hasta_utc, hora_local, "🗓️ Resumen Mensual de Oportunidades", f"mes de {nombre_mes}")
 
+
 def tarea_reenviar_todo_almacenado():
     """
-    Reenvía TODO lo que hay guardado en Mongo, sin volver a consultar Mercado Público.
-    Este reporte va a SOPORTE@INDUWORK.CL (para que el equipo de soporte pueda revisar)
+    Reenvía TODO lo almacenado en Mongo a soporte@induwork.cl para revisión.
     """
     hora_local = datetime.now(CL_TZ).strftime("%H:%M")
     print(f"📤 Reenviando todo lo almacenado a soporte ({hora_local} hora Chile)")
@@ -145,28 +148,20 @@ def tarea_reenviar_todo_almacenado():
         print("ℹ️ No hay datos almacenados en la base de datos.")
         return
 
-    # Agrupar por empresa
     grupos = agrupar_por_empresa(todas)
-    
-    # Contar totales
+
     from modules.scraper import contar_por_tipo
-    total_licitaciones = 0
-    total_compras_agiles = 0
-    
     for categoria, items in grupos.items():
         if not items:
             continue
+
         conteo = contar_por_tipo(items)
-        total_licitaciones += conteo["licitaciones"]
-        total_compras_agiles += conteo["compras_agiles"]
-        
         nombre_categoria = {
             "coimsa": "Coimsa",
             "induwork": "Induwork",
             "especial": "MVI / Sociales"
         }.get(categoria, categoria)
 
-        # Cuerpo del resumen
         cuerpo_extra = f"""
         <h3>📊 Resumen de {nombre_categoria}</h3>
         <ul>
@@ -182,7 +177,7 @@ def tarea_reenviar_todo_almacenado():
             f"📤 REENVÍO COMPLETO DB ({nombre_categoria}) - {hora_local}",
             items,
             cuerpo_extra_html=cuerpo_extra,
-            destinatario_override=DEST_PRUEBA_SOPORTE, 
+            destinatario_override=DEST_PRUEBA_SOPORTE,
         )
 
     print(f"📨 Reenvío completo enviado a {DEST_PRUEBA_SOPORTE}")
@@ -194,8 +189,8 @@ def estado_bot():
         "status": "online",
         "proyecto": "Induwork & Coimsa & MVI Procurement Bot",
         "hora_chile": datetime.now(CL_TZ).isoformat(),
-        "modo_prueba": True, 
-        "destinatario_general": "gerencia@induwork.cl",
+        "modo_prueba": True,
+        "destinatario_general": "soporte@induwork.cl",
         "destinatario_resend": "soporte@induwork.cl",
     }
 
