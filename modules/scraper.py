@@ -89,6 +89,20 @@ BACKOFF_429 = (
     15,
 )
 
+# La API v2 de Compra Ágil hace timeout (HTTP 504)
+# con tamano_pagina >= 25. Size 10 responde 200 de forma
+# confiable (~10–25s por página).
+COMPRA_AGIL_TAMANO_PAGINA = 10
+
+# Timeout por página: la API es lenta; el gateway corta ~30s.
+COMPRA_AGIL_TIMEOUT_PAGINA = 90
+
+# Máximo de páginas por consulta (con size 10 = hasta N*10 ítems).
+# La recuperación de 14 días puede tener miles de resultados;
+# no escaneamos todas las páginas en cada fast-check.
+COMPRA_AGIL_MAX_PAGINAS_INCREMENTAL = 5
+COMPRA_AGIL_MAX_PAGINAS_RECUPERACION = 30
+
 
 # ============================================================
 # RECUPERACIÓN COMPRA ÁGIL
@@ -1180,7 +1194,9 @@ def _actualizar_existente(
         "clasificacion"
     ] = clasificacion
 
-    if existente.get(
+    if clasificacion.get(
+        "induwork"
+    ) and existente.get(
         "validacion_ia_induwork"
     ):
 
@@ -1189,6 +1205,13 @@ def _actualizar_existente(
         ] = existente[
             "validacion_ia_induwork"
         ]
+
+    elif "validacion_ia_induwork" in licitacion_actualizada:
+
+        licitacion_actualizada.pop(
+            "validacion_ia_induwork",
+            None,
+        )
 
     licitacion_actualizada[
         "fecha_primera_deteccion"
@@ -1220,15 +1243,28 @@ def _actualizar_existente(
                 if key != "id"
             }
 
+            update_doc = {
+                "$set": datos_actualizados
+            }
+
+            if (
+                "validacion_ia_induwork"
+                not in datos_actualizados
+            ):
+
+                update_doc[
+                    "$unset"
+                ] = {
+                    "validacion_ia_induwork": "",
+                }
+
             db[
                 "licitaciones"
             ].update_one(
                 {
                     "id": codigo
                 },
-                {
-                    "$set": datos_actualizados
-                },
+                update_doc,
             )
 
         except Exception as e:
@@ -1254,13 +1290,21 @@ def procesar_y_guardar_licitaciones():
     resultado = {
         "nuevas": [],
         "activas_anteriores": [],
+        "fallidos_detalles": [],
     }
 
     if not licitaciones_activas:
 
+        print(
+            "❌ API de licitaciones sin datos "
+            "(fallo HTTP o listado vacío). "
+            "NO se interpreta como 'sin oportunidades'."
+        )
+
         return resultado
 
     candidatas = []
+    fallidos_detalles = []
 
     for lic in licitaciones_activas:
 
@@ -1323,9 +1367,28 @@ def procesar_y_guardar_licitaciones():
         if not detalle:
 
             print(
-                f"⚠️ No se pudo obtener "
-                f"detalle de {codigo}, "
-                "se omite."
+                f"⚠️ Detalle de {codigo} vacío "
+                "o fallido. Reintentando una vez..."
+            )
+
+            _esperar_entre_detalles()
+
+            detalle = (
+                obtener_detalle_licitacion(
+                    codigo
+                )
+            )
+
+        if not detalle:
+
+            print(
+                f"❌ ERROR DETALLE: {codigo} "
+                "no se pudo obtener tras reintento. "
+                "NO se omite en silencio — se contabiliza."
+            )
+
+            fallidos_detalles.append(
+                codigo
             )
 
             continue
@@ -1457,6 +1520,14 @@ def procesar_y_guardar_licitaciones():
                             f"Productos: "
                             f"{licitacion_mapeada.get('texto_productos', '')}"
                         ),
+                        organismo=licitacion_mapeada.get(
+                            "organismo",
+                            "",
+                        ),
+                        region=licitacion_mapeada.get(
+                            "region",
+                            "",
+                        ),
                     )
                 )
 
@@ -1508,6 +1579,38 @@ def procesar_y_guardar_licitaciones():
                         f"{codigo} para Induwork."
                     )
 
+                    if existente and db is not None:
+
+                        try:
+
+                            db[
+                                "licitaciones"
+                            ].update_one(
+                                {
+                                    "id": codigo
+                                },
+                                {
+                                    "$set": {
+                                        "clasificacion.induwork": False,
+                                    },
+                                    "$unset": {
+                                        "validacion_ia_induwork": "",
+                                    },
+                                },
+                            )
+
+                            print(
+                                "♻️ Rechazo persistido "
+                                f"para {codigo}."
+                            )
+
+                        except Exception as e:
+
+                            print(
+                                "⚠️ No se pudo persistir "
+                                f"el rechazo de {codigo}: {e}"
+                            )
+
         # ====================================================
         # NINGUNA CATEGORÍA
         # ====================================================
@@ -1528,6 +1631,39 @@ def procesar_y_guardar_licitaciones():
                 f"⏭️ {codigo} no clasifica "
                 "para ninguna categoría."
             )
+
+            if existente and db is not None:
+
+                try:
+
+                    db[
+                        "licitaciones"
+                    ].update_one(
+                        {
+                            "id": codigo
+                        },
+                        {
+                            "$set": {
+                                "clasificacion": clasificacion,
+                                "ultima_verificacion": ahora_utc,
+                            },
+                            "$unset": {
+                                "validacion_ia_induwork": "",
+                            },
+                        },
+                    )
+
+                    print(
+                        "♻️ Clasificación actualizada "
+                        f"para {codigo} (sin categoría)."
+                    )
+
+                except Exception as e:
+
+                    print(
+                        "⚠️ No se pudo actualizar "
+                        f"{codigo}: {e}"
+                    )
 
             continue
 
@@ -1625,8 +1761,24 @@ def procesar_y_guardar_licitaciones():
     )
 
     print(
+        f"❌ Detalle fallido: "
+        f"{len(fallidos_detalles)}"
+    )
+
+    if fallidos_detalles:
+
+        print(
+            "   Códigos: "
+            + ", ".join(fallidos_detalles[:20])
+        )
+
+    print(
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     )
+
+    resultado[
+        "fallidos_detalles"
+    ] = fallidos_detalles
 
     return resultado
 
@@ -1640,8 +1792,11 @@ def _request_compra_agil(
     headers,
     *,
     params=None,
-    timeout=60,
+    timeout=None,
 ):
+
+    if timeout is None:
+        timeout = COMPRA_AGIL_TIMEOUT_PAGINA
 
     max_retries = 3
 
@@ -1773,8 +1928,16 @@ def _request_compra_agil(
 def _obtener_items_compra_agil(
     headers,
     params,
-    timeout=60,
+    timeout=None,
 ):
+    """
+    Returns:
+        (items, paginacion, ok)
+        ok=False cuando la API respondió distinto de 200.
+    """
+
+    if timeout is None:
+        timeout = COMPRA_AGIL_TIMEOUT_PAGINA
 
     response = _request_compra_agil(
         ENDPOINT_COMPRA_AGIL,
@@ -1791,7 +1954,17 @@ def _obtener_items_compra_agil(
             f"{response.text[:500]}"
         )
 
-        return [], {}
+        if response.status_code in (
+            400,
+            401,
+        ):
+
+            print(
+                "   → Revisar header 'ticket' "
+                "(CHILECOMPRA_TICKET)."
+            )
+
+        return [], {}, False
 
     data = response.json()
 
@@ -1819,7 +1992,7 @@ def _obtener_items_compra_agil(
         or {}
     )
 
-    return items, paginacion
+    return items, paginacion, True
 
 
 # ============================================================
@@ -1830,13 +2003,22 @@ def _consultar_compra_agil_paginas(
     headers,
     params_base,
     etiqueta,
+    max_paginas=None,
 ):
+    """
+    Returns:
+        (items, ok)
+        ok=False si alguna página falló contra la API.
+    """
 
     todos = []
 
     numero_pagina = 1
 
-    max_paginas = 20
+    if max_paginas is None:
+        max_paginas = COMPRA_AGIL_MAX_PAGINAS_RECUPERACION
+
+    ok_general = True
 
     while (
         numero_pagina
@@ -1846,7 +2028,9 @@ def _consultar_compra_agil_paginas(
         params = {
             **params_base,
             "numero_pagina": numero_pagina,
-            "tamano_pagina": 50,
+            "tamano_pagina": (
+                COMPRA_AGIL_TAMANO_PAGINA
+            ),
         }
 
         print(
@@ -1854,13 +2038,19 @@ def _consultar_compra_agil_paginas(
             f"— página {numero_pagina}..."
         )
 
-        items, paginacion = (
+        items, paginacion, ok = (
             _obtener_items_compra_agil(
                 headers,
                 params,
-                timeout=60,
+                timeout=(
+                    COMPRA_AGIL_TIMEOUT_PAGINA
+                ),
             )
         )
+
+        if not ok:
+            ok_general = False
+            break
 
         if not items:
             break
@@ -1898,7 +2088,7 @@ def _consultar_compra_agil_paginas(
             0.5
         )
 
-    return todos
+    return todos, ok_general
 
 
 # ============================================================
@@ -2343,6 +2533,8 @@ def simular_scraping_compra_agil_urgente():
 
     ids_procesados = set()
 
+    api_fallida = False
+
     try:
 
         # ====================================================
@@ -2360,9 +2552,6 @@ def simular_scraping_compra_agil_urgente():
         params_incremental = {
             "ttl_cambio_ms": ventana_ms,
             "estado": "publicada",
-            "ordenar_por": (
-                "FechaUltimaModificacion"
-            ),
         }
 
         print(
@@ -2370,13 +2559,19 @@ def simular_scraping_compra_agil_urgente():
             "v2 incremental..."
         )
 
-        items_incrementales = (
+        items_incrementales, ok_incremental = (
             _consultar_compra_agil_paginas(
                 headers,
                 params_incremental,
                 "Compra Ágil incremental",
+                max_paginas=(
+                    COMPRA_AGIL_MAX_PAGINAS_INCREMENTAL
+                ),
             )
         )
+
+        if not ok_incremental:
+            api_fallida = True
 
         # ====================================================
         # CONSULTA 2
@@ -2403,9 +2598,6 @@ def simular_scraping_compra_agil_urgente():
                 fecha_desde_iso
             ),
             "estado": "publicada",
-            "ordenar_por": (
-                "FechaPublicacion"
-            ),
         }
 
         print(
@@ -2417,13 +2609,19 @@ def simular_scraping_compra_agil_urgente():
 
         try:
 
-            items_recuperacion = (
+            items_recuperacion, ok_recuperacion = (
                 _consultar_compra_agil_paginas(
                     headers,
                     params_recuperacion,
                     "Compra Ágil recuperación",
+                    max_paginas=(
+                        COMPRA_AGIL_MAX_PAGINAS_RECUPERACION
+                    ),
                 )
             )
+
+            if not ok_recuperacion:
+                api_fallida = True
 
         except requests.exceptions.RequestException as e:
 
@@ -2433,6 +2631,7 @@ def simular_scraping_compra_agil_urgente():
             )
 
             items_recuperacion = []
+            api_fallida = True
 
         # ====================================================
         # UNIFICAR
@@ -2594,6 +2793,14 @@ def simular_scraping_compra_agil_urgente():
                             f"{compra.get('descripcion', '')} "
                             f"Productos: "
                             f"{compra.get('texto_productos', '')}"
+                        ),
+                        organismo=compra.get(
+                            "organismo",
+                            "",
+                        ),
+                        region=compra.get(
+                            "region",
+                            "",
                         ),
                     )
                 )
@@ -2775,8 +2982,8 @@ def simular_scraping_compra_agil_urgente():
     except requests.exceptions.RequestException as e:
 
         print(
-            "❌ Error HTTP al consultar "
-            f"la API v2 de Compra Ágil: {e}"
+            "❌ ERROR API v2 Compra Ágil "
+            f"(fallo de red/HTTP, no 'sin resultados'): {e}"
         )
 
         return []
@@ -2789,6 +2996,30 @@ def simular_scraping_compra_agil_urgente():
         )
 
         return []
+
+    if api_fallida:
+
+        print(
+            "❌ API Compra Ágil con fallo(es) HTTP "
+            "en este ciclo — NO se puede afirmar "
+            "que no haya oportunidades urgentes."
+        )
+
+        if alertas_urgentes:
+
+            print(
+                f"⚠️ Aun así se obtuvieron "
+                f"{len(alertas_urgentes)} alertas "
+                "de las consultas que sí respondieron."
+            )
+
+    elif not alertas_urgentes:
+
+        print(
+            "ℹ️ API Compra Ágil respondió OK "
+            "y no hay cierres urgentes relevantes "
+            "en este ciclo."
+        )
 
     return alertas_urgentes
 

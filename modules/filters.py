@@ -177,19 +177,62 @@ KEYWORDS_CONTEXTO_INDUWORK = [
     "inspección",
     "fiscalizador",
     "fiscalizadores",
-    "control",
-    "personal",
-    "funcionario",
-    "funcionarios",
     "operativo",
     "operativos",
     "vigilancia",
-    "proteccion",
-    "protección",
     "policial",
     "policiales",
-    "municipal",
-    "municipales",
+    "militar",
+    "militares",
+    "ejercito",
+    "ejército",
+    "fuerzas armadas",
+    "seguridad publica e inspeccion municipal",
+    "seguridad pública e inspección municipal",
+]
+
+
+# ============================================================
+# VESTUARIO AMBIGUO (uniformes, etc.)
+# ============================================================
+
+# Estos productos solos no bastan: aparecen en hospitales,
+# juntas municipales, oficinas, etc. Requieren contexto de
+# seguridad/vigilancia real (o una combinación fuerte).
+KEYWORDS_VESTUARIO_AMBIGUO = [
+    "uniforme",
+    "uniformes",
+    "vestuario",
+    "vestuarios",
+    "prenda",
+    "prendas",
+    "bota",
+    "botas",
+    "calzado",
+]
+
+
+# Contexto aceptable para vestuario/calzado genéricos.
+# A propósito NO incluye: funcionario, personal, control,
+# municipal, proteccion — solos habilitaban uniformes de
+# hospital u oficina.
+KEYWORDS_CONTEXTO_VESTUARIO = [
+    "guardia",
+    "guardias",
+    "vigilante",
+    "vigilantes",
+    "patrullero",
+    "patrulleros",
+    "inspector",
+    "inspectores",
+    "fiscalizador",
+    "fiscalizadores",
+    "vigilancia",
+    "seguridad",
+    "seguridad publica",
+    "seguridad pública",
+    "policial",
+    "policiales",
     "militar",
     "militares",
     "ejercito",
@@ -391,9 +434,31 @@ def contiene_producto_adicional_induwork(
     y además existe contexto compatible.
 
     Las 28 keywords originales NO utilizan esta función.
+
+    Vestuario/calzado genéricos exigen contexto de
+    seguridad o vigilancia (no basta "funcionario",
+    "personal" u "oficina").
     """
 
     texto = _normalizar_texto(texto)
+
+    if _contiene_alguna_keyword(
+        texto,
+        COMBINACIONES_INDUWORK_FUERTES,
+    ):
+        return True
+
+    es_vestuario_ambiguo = _contiene_alguna_keyword(
+        texto,
+        KEYWORDS_VESTUARIO_AMBIGUO,
+    )
+
+    if es_vestuario_ambiguo:
+
+        return _contiene_alguna_keyword(
+            texto,
+            KEYWORDS_CONTEXTO_VESTUARIO,
+        )
 
     producto = _contiene_alguna_keyword(
         texto,
@@ -402,12 +467,6 @@ def contiene_producto_adicional_induwork(
 
     if not producto:
         return False
-
-    if _contiene_alguna_keyword(
-        texto,
-        COMBINACIONES_INDUWORK_FUERTES,
-    ):
-        return True
 
     return contiene_contexto_induwork(
         texto

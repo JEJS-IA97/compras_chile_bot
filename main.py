@@ -59,7 +59,7 @@ def tarea_fast_check_compra_agil():
 
     alertas = simular_scraping_compra_agil_urgente()
     if not alertas:
-        print("ℹ️ No hubo alertas urgentes en este ciclo.")
+        print("ℹ️ Sin alertas urgentes nuevas en este ciclo (ver log anterior: API OK o fallo HTTP).")
         return
 
     _enviar_por_categoria(alertas, hora_local, "🚨 ALERTA INMEDIATA: Compra Ágil de Cierre Pronto", es_alerta_urgente=True)
@@ -86,11 +86,23 @@ def tarea_reporte_diario():
     )
 
     print(
-        f"📊 Resumen diario: "
+        "📊 Resumen diario: "
         f"{len(nuevas)} nuevas | "
         f"{len(activas_anteriores)} "
         "activas anteriores"
     )
+
+    fallidos = resultado.get(
+        "fallidos_detalles",
+        [],
+    )
+
+    if fallidos:
+
+        print(
+            f"⚠️ {len(fallidos)} licitaciones "
+            "con detalle fallido (revisar logs)."
+        )
 
     if not nuevas and not activas_anteriores:
         print(

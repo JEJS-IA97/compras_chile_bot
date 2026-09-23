@@ -287,29 +287,44 @@ def _fallback_local(
 def _crear_prompt(
     nombre: str,
     descripcion: str,
+    organismo: str = "",
+    region: str = "",
 ) -> str:
+
+    organismo_txt = (
+        organismo.strip()
+        or "No informado"
+    )
+
+    region_txt = (
+        region.strip()
+        or "No informada"
+    )
 
     return f"""
 Eres un clasificador de oportunidades de compra pública
 para INDUWORK.
 
 Tu única tarea es decidir si el OBJETO REAL de la compra
-representa una oportunidad comercial razonablemente compatible
-con la línea de productos de Induwork.
+es compatible con la línea comercial de Induwork:
+equipo táctico, balístico y de seguridad PARA GUARDIAS
+Y VIGILANTES (no uniformes de oficina ni de hospitales).
 
 La oportunidad ya pasó un pre-filtro.
 
 IMPORTANTE:
-NO debes decidir solamente por una palabra.
+NO decidas solamente por una palabra.
 
-Debes analizar el contexto completo, especialmente:
-
+Analiza el contexto completo:
 - título;
 - descripción;
 - productos solicitados;
-- destino de los productos;
-- organismo o unidad compradora cuando aparezca;
+- destino real de los productos;
+- organismo o unidad compradora;
 - si realmente se compra un BIEN FÍSICO.
+
+Organismo comprador: {organismo_txt}
+Región: {region_txt}
 
 ============================================================
 LÍNEA COMERCIAL DE INDUWORK
@@ -317,289 +332,97 @@ LÍNEA COMERCIAL DE INDUWORK
 
 Induwork trabaja principalmente con:
 
-PROTECCIÓN PERSONAL
+PROTECCIÓN BALÍSTICA / ANTICORTE
 
-- chalecos anticorte;
-- chalecos antibalas;
-- chalecos balísticos;
-- paneles anticorte;
-- paneles antibalas;
-- paneles balísticos;
-- cascos balísticos;
-- lentes balísticos;
-- fundas para chalecos.
+- chalecos anticorte y antibalas;
+- paneles anticorte y antibalas;
+- cascos y lentes balísticos.
 
 EQUIPAMIENTO TÁCTICO
 
-- chalecos tácticos;
-- cascos tácticos;
-- uniformes tácticos;
-- pantalones tácticos;
-- poleras tácticas;
-- chaquetas tácticas;
-- guantes tácticos;
-- cinturones tácticos;
-- mochilas tácticas;
-- linternas tácticas;
-- brújulas tácticas;
-- accesorios MOLLE;
-- pouch;
-- porta bastones;
-- bastones retráctiles;
-- bastones de protección personal;
-- esposas;
-- porta esposas;
-- pistoleras;
-- portarevólveres;
-- fundas para armas;
-- accesorios tácticos.
+- chalecos, cascos y uniformes tácticos;
+- pantalones, poleras, chaquetas y guantes tácticos;
+- cinturones, mochilas y accesorios MOLLE;
+- bastones retráctiles, pistoleras, portarevólveres;
+- esposas y porta esposes.
 
-VESTUARIO DE SEGURIDAD
+VESTUARIO DE SEGURIDAD (solo guardias/vigilantes)
 
-- uniformes para guardias;
-- uniformes para vigilantes;
-- pantalones de vigilancia;
-- casacas de vigilancia;
-- camisas para vigilantes;
-- gorros y kepis;
-- prendas institucionales;
-- chalecos reflectantes;
-- arneses reflectantes.
+- uniformes y vestuario PARA guardias o vigilantes;
+- pantalones y casacas de vigilancia;
+- gorros y kepis de seguridad;
+- chalecos y arneses reflectantes.
 
-CALZADO
+CALZADO (solo operativo/seguridad)
 
-- botas tácticas;
-- botas militares;
-- botas SWAT;
-- botas para guardias;
-- botas para vigilantes;
-- botas de seguridad relacionadas con
-  seguridad, vigilancia o equipamiento táctico.
+- botas tácticas, militares o SWAT;
+- botas para guardias o vigilantes.
 
-PRODUCTOS ADICIONALES COMPATIBLES
+PRODUCTOS ADICIONALES
 
-También puede interesar un producto que no esté
-literalmente en el catálogo actual si pertenece claramente
-a la misma familia comercial.
-
-Ejemplos:
-
-- chaleco geólogo;
-- chaleco de terreno;
-- chaleco institucional;
-- prendas físicas utilizadas por inspectores;
-- vestuario físico para personal operativo;
-- equipamiento físico para personal de seguridad;
-- accesorios de portación relacionados con seguridad.
-
-El catálogo actual es una REFERENCIA, NO una lista cerrada.
+- chaleco geólogo o de terreno;
+- equipamiento físico para personal de seguridad.
 
 ============================================================
 REGLA PRINCIPAL
 ============================================================
 
-APRUEBA cuando el OBJETO REAL sea adquirir un PRODUCTO FÍSICO
-que razonablemente pueda ser vendido o suministrado por
-Induwork o conseguido por Induwork dentro de su misma línea.
-
-No es necesario que el nombre del producto coincida
-exactamente con el catálogo.
+APRUEBA solo si el OBJETO REAL es un PRODUCTO FÍSICO
+que Induwork pueda suministrar dentro de su línea
+(táctico, balístico o vestuario de seguridad).
 
 ============================================================
-CASO IMPORTANTE: CHALECO GEÓLOGO
+NO RELEVANTE — RECHAZA EXPLÍCITAMENTE
 ============================================================
 
-Una compra como:
+Uniformes o vestuario para:
 
-"Se solicita cotizar chaleco geólogo con logos bordados
-para uso director de control"
+- hospitales, clínicas, consultorios;
+- personal de salud, enfermeras, médicos;
+- funcionarios administrativos u oficinas;
+- juntas municipales o establecimientos educacionales;
+- personal de aseo, cocina o atención al público;
 
-puede ser RELEVANTE.
+aunque el texto diga "uniforme", "vestuario", "prenda",
+"funcionario" o "institucional".
 
-No rechaces una oportunidad simplemente porque diga
-"geólogo".
+También NO RELEVANTE:
 
-Debes entender que el objeto real es un CHALECO FÍSICO.
+- servicios de vigilancia o contratación de guardias;
+- cámaras, CCTV, alarmas, sensores;
+- software, consultoría, capacitaciones, cursos;
+- obras y servicios administrativos;
+- cualquier producto completamente ajeno
+  a seguridad, vigilancia o equipamiento táctico.
 
-Analiza además el destino institucional y el uso del producto.
+"Seguridad" sola NO basta si el bien no es táctico
+ni de vigilancia (ej. uniforme de hospital "de seguridad").
 
-============================================================
-BOTAS
-============================================================
+Servicios disfrazados de producto también NO:
 
-Son RELEVANTES:
-
-- botas tácticas;
-- botas militares;
-- botas SWAT;
-- botas para guardias;
-- botas para vigilantes;
-- botas de seguridad destinadas a personal operativo,
-  seguridad pública, vigilancia o similares.
-
-Ejemplo:
-
-Título:
-"COMPRA DE BOTAS TACTICAS PROFESIONAL"
-
-=> RELEVANTE.
-
-Descripción:
-"Solicitud de compra de botas tácticas para personal."
-
-=> RELEVANTE.
-
-Incluso si la descripción dice simplemente
-"botas de seguridad", analiza el contexto completo.
+- "Curso táctico" => NO.
+- "Capacitación táctica" => NO.
+- "Entrenamiento táctico" => NO.
 
 ============================================================
-UNIFORMES
+CASOS SÍ RELEVANTES
 ============================================================
 
-RELEVANTE:
-
-- uniformes para guardias;
-- uniformes para vigilantes;
-- vestuario de vigilancia;
-- pantalones para guardias;
-- casacas para vigilantes;
-- camisas para vigilantes;
-- prendas físicas institucionales para personal operativo.
+- "Botas tácticas para personal" => SÍ.
+- "Chalecos antibalas para patrulleros" => SÍ.
+- "Uniformes para guardias de seguridad" => SÍ.
+- "Vestuario de vigilancia para inspectores" => SÍ.
+- "Paneles anticorte" => SÍ.
+- "Chaleco geólogo con logos" => SÍ.
 
 ============================================================
-BASTONES
+CASOS NO RELEVANTES
 ============================================================
 
-RELEVANTE:
-
-- bastones retráctiles;
-- bastones tácticos;
-- bastones de protección personal;
-- porta bastones.
-
-============================================================
-PORTAREVÓLVERES / FUNDAS
-============================================================
-
-RELEVANTE:
-
-- portarevólveres;
-- fundas para revólver;
-- pistoleras;
-- fundas tácticas;
-- accesorios de portación para personal de seguridad.
-
-============================================================
-REFLECTANTES
-============================================================
-
-RELEVANTE cuando sean prendas físicas:
-
-- chalecos reflectantes;
-- arneses reflectantes;
-- prendas reflectantes;
-- vestuario reflectante.
-
-Especialmente para seguridad, vigilancia, inspectores,
-trabajo operativo o actividades institucionales.
-
-============================================================
-TÁCTICO / TÁCTICA
-============================================================
-
-Las variantes:
-
-- tactica;
-- tacticas;
-- táctica;
-- tácticas;
-- tactico;
-- tacticos;
-- táctico;
-- tácticos;
-
-pueden representar productos o servicios.
-
-PRODUCTO:
-
-"Botas tácticas"
-=> RELEVANTE.
-
-"Chalecos tácticos"
-=> RELEVANTE.
-
-"Uniformes tácticos"
-=> RELEVANTE.
-
-"Bastón táctico"
-=> RELEVANTE.
-
-"Equipamiento táctico"
-=> RELEVANTE si corresponde a bienes físicos.
-
-SERVICIO:
-
-"Curso táctico"
-=> NO RELEVANTE.
-
-"Capacitación táctica"
-=> NO RELEVANTE.
-
-"Entrenamiento táctico"
-=> NO RELEVANTE.
-
-"Planificación táctica"
-=> NO RELEVANTE.
-
-"Servicio táctico"
-=> NO RELEVANTE.
-
-============================================================
-SEGURIDAD
-============================================================
-
-La palabra "seguridad" sola NO es suficiente.
-
-NO RELEVANTE:
-
-"Servicio de seguridad para edificio."
-
-RELEVANTE:
-
-"Adquisición de botas de seguridad para Seguridad Pública."
-
-RELEVANTE:
-
-"Chalecos para inspectores de seguridad."
-
-La diferencia es que debemos identificar el BIEN FÍSICO.
-
-============================================================
-NO RELEVANTE
-============================================================
-
-Rechaza:
-
-- servicios de vigilancia;
-- contratación de guardias;
-- monitoreo;
-- cámaras;
-- CCTV;
-- alarmas;
-- sensores;
-- instalación de sistemas;
-- mantenimiento de sistemas;
-- consultoría;
-- asesorías;
-- capacitaciones;
-- cursos;
-- entrenamiento como servicio;
-- software;
-- desarrollo informático;
-- obras;
-- servicios administrativos;
-- transporte;
-- cualquier producto completamente ajeno.
+- "Uniformes para funcionarios del hospital" => NO.
+- "Ropa de trabajo para personal asistencial" => NO.
+- "Uniformes médicos para clínica" => NO.
+- "Servicio de vigilancia 24/7" => NO.
 
 ============================================================
 TÍTULO
@@ -617,17 +440,9 @@ DESCRIPCIÓN
 DECISIÓN
 ============================================================
 
-Sé permisivo cuando exista un PRODUCTO FÍSICO compatible
-con la línea comercial de Induwork.
-
-No seas excesivamente restrictivo.
-
-Un producto nuevo puede ser relevante.
-
-Pero no apruebes una oportunidad únicamente porque mencione
-"seguridad", "protección", "táctico" o "vigilancia".
-
-Determina el OBJETO REAL de compra.
+Determina el OBJETO REAL de compra y a quién va destinado.
+Si es vestuario/uniforme sin vínculo con guardias,
+vigilancia o táctico, responde relevante=false.
 
 ============================================================
 RESPUESTA
@@ -688,11 +503,15 @@ def _consultar_modelo(
     model_name: str,
     nombre: str,
     descripcion: str,
+    organismo: str = "",
+    region: str = "",
 ):
 
     prompt = _crear_prompt(
         nombre,
         descripcion,
+        organismo,
+        region,
     )
 
     return client.models.generate_content(
@@ -700,7 +519,7 @@ def _consultar_modelo(
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
-            max_output_tokens=300,
+            max_output_tokens=800,
         ),
     )
 
@@ -769,6 +588,8 @@ def _procesar_respuesta(
 def clasificar_con_gemini(
     nombre: str,
     descripcion: str,
+    organismo: str = "",
+    region: str = "",
 ) -> dict:
 
     if client is None:
@@ -802,6 +623,8 @@ def clasificar_con_gemini(
                 PRIMARY_MODEL,
                 nombre,
                 descripcion,
+                organismo,
+                region,
             )
 
             return _procesar_respuesta(
@@ -863,6 +686,8 @@ def clasificar_con_gemini(
                 FALLBACK_MODEL,
                 nombre,
                 descripcion,
+                organismo,
+                region,
             )
 
             print(
