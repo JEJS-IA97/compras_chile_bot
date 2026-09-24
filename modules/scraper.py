@@ -1792,18 +1792,24 @@ def _request_compra_agil(
     headers,
     *,
     params=None,
-    timeout=None,
+    timeout=45,
+    max_retries=1,
 ):
+    """
+    Realiza una consulta a la API v2 de Compra Ágil.
 
-    if timeout is None:
-        timeout = COMPRA_AGIL_TIMEOUT_PAGINA
+    IMPORTANTE:
+    No hacemos varios reintentos largos para cada búsqueda.
+    La API puede devolver 504 en determinadas consultas,
+    especialmente cuando la búsqueda es demasiado pesada.
 
-    max_retries = 3
+    Un error temporal se reintenta una sola vez y después
+    se continúa con la siguiente búsqueda.
+    """
 
     backoffs = (
+        2,
         5,
-        15,
-        30,
     )
 
     for intento in range(
@@ -1838,7 +1844,8 @@ def _request_compra_agil(
             print(
                 "⚠️ Error temporal de red "
                 f"({error}). "
-                f"Reintentando en {espera}s..."
+                f"Reintentando una vez en "
+                f"{espera}s..."
             )
 
             time.sleep(
@@ -1859,47 +1866,12 @@ def _request_compra_agil(
 
                 return response
 
-            retry_after = (
-                response.headers.get(
-                    "Retry-After"
+            espera = backoffs[
+                min(
+                    intento,
+                    len(backoffs) - 1,
                 )
-            )
-
-            try:
-
-                espera = (
-                    max(
-                        float(
-                            retry_after
-                        ),
-                        backoffs[
-                            min(
-                                intento,
-                                len(backoffs) - 1,
-                            )
-                        ],
-                    )
-                    if retry_after
-                    else
-                    backoffs[
-                        min(
-                            intento,
-                            len(backoffs) - 1,
-                        )
-                    ]
-                )
-
-            except (
-                ValueError,
-                TypeError,
-            ):
-
-                espera = backoffs[
-                    min(
-                        intento,
-                        len(backoffs) - 1,
-                    )
-                ]
+            ]
 
             print(
                 "⚠️ Compra Ágil API respondió "
@@ -1922,103 +1894,215 @@ def _request_compra_agil(
 
 
 # ============================================================
-# ITEMS COMPRA ÁGIL
+# NORMALIZAR QUERY PARA LA API
 # ============================================================
 
-def _obtener_items_compra_agil(
-    headers,
-    params,
-    timeout=None,
+def _normalizar_query_compra_agil(
+    termino,
 ):
     """
-    Returns:
-        (items, paginacion, ok)
-        ok=False cuando la API respondió distinto de 200.
+    Convierte las variantes de las búsquedas manuales
+    a una forma más estable para la API.
+
+    La lista comercial NO cambia.
+
+    Ejemplos:
+
+        anti corte
+        -> anticorte
+
+        anti cortes
+        -> anticortes
+
+        anti punzon
+        -> antipunzon
+
+        anti bala
+        -> antibala
+
+        tácticas
+        -> tacticas
+
+    Esto evita enviar a la API búsquedas con espacios que
+    hemos comprobado que pueden provocar HTTP 504.
     """
 
-    if timeout is None:
-        timeout = COMPRA_AGIL_TIMEOUT_PAGINA
+    import unicodedata
 
-    response = _request_compra_agil(
-        ENDPOINT_COMPRA_AGIL,
-        headers,
-        params=params,
-        timeout=timeout,
+    texto = str(
+        termino or ""
+    ).strip().lower()
+
+    texto = (
+        unicodedata.normalize(
+            "NFKD",
+            texto,
+        )
+        .encode(
+            "ascii",
+            "ignore",
+        )
+        .decode(
+            "ascii"
+        )
     )
 
-    if response.status_code != 200:
+    texto = (
+        texto
+        .replace(
+            " ",
+            "",
+        )
+        .replace(
+            "-",
+            "",
+        )
+    )
+
+    return texto
+
+
+# ============================================================
+# BÚSQUEDAS INDUWORK
+# ============================================================
+
+def _obtener_busquedas_compra_agil_induwork():
+    """
+    Mantiene las 28 búsquedas manuales originales.
+
+    Luego agrega la segunda capa de productos.
+
+    Las búsquedas originales conservan exactamente sus
+    variantes conceptuales. Para la llamada HTTP se genera
+    una versión normalizada y se eliminan duplicados.
+    """
+
+    busquedas_originales = [
+        "anticorte",
+        "anticortes",
+        "anti corte",
+        "anti cortes",
+        "anti punzon",
+        "antipunzon",
+        "antipunzonamiento",
+        "anti punzonamiento",
+        "tactica",
+        "tacticas",
+        "táctica",
+        "tácticas",
+        "tactico",
+        "tacticos",
+        "táctico",
+        "tácticos",
+        "antibala",
+        "antibalas",
+        "anti bala",
+        "anti balas",
+        "balistico",
+        "balisticos",
+        "balístico",
+        "balísticos",
+        "balistica",
+        "balisticas",
+        "balística",
+        "balísticas",
+    ]
+
+    # ========================================================
+    # NUEVA SEGUNDA CAPA
+    # ========================================================
+
+    # Estas palabras sirven solamente para ampliar cobertura.
+    #
+    # NO representan aprobación automática.
+    #
+    # Después del detalle pasan por el contexto comercial
+    # de Induwork y por Gemini.
+    busquedas_adicionales = [
+        "chaleco",
+        "chalecos",
+        "botas",
+        "bota",
+        "calzado",
+        "uniforme",
+        "uniformes",
+        "reflectante",
+        "reflectantes",
+        "casco",
+        "cascos",
+        "baston",
+        "bastones",
+        "bastón",
+        "portabaston",
+        "portabastones",
+        "portarevolver",
+        "portarevólver",
+        "porta revolver",
+        "porta revólver",
+        "pistolera",
+        "pistoleras",
+        "esposas",
+        "porta esposas",
+    ]
+
+    return (
+        busquedas_originales,
+        busquedas_adicionales,
+    )
+
+
+# ============================================================
+# PAGINACIÓN DE UNA BÚSQUEDA
+# ============================================================
+
+def _buscar_compra_agil_por_query(
+    termino_original,
+    tipo_busqueda,
+    headers,
+):
+    """
+    Busca una palabra/expresión mediante q.
+
+    La API recibe la forma normalizada.
+
+    Devuelve todos los items encontrados dentro de un límite
+    razonable de páginas.
+    """
+
+    query_api = (
+        _normalizar_query_compra_agil(
+            termino_original
+        )
+    )
+
+    if not query_api:
+
+        return []
+
+    print(
+        "\n🔍 Compra Ágil "
+        f"[{tipo_busqueda}] "
+        f"q={termino_original}"
+    )
+
+    if (
+        query_api
+        != termino_original.lower().replace(
+            " ",
+            "",
+        )
+    ):
 
         print(
-            "❌ Compra Ágil respondió HTTP "
-            f"{response.status_code} - "
-            f"{response.text[:500]}"
+            f"   ↳ Consulta API: "
+            f"q={query_api}"
         )
 
-        if response.status_code in (
-            400,
-            401,
-        ):
-
-            print(
-                "   → Revisar header 'ticket' "
-                "(CHILECOMPRA_TICKET)."
-            )
-
-        return [], {}, False
-
-    data = response.json()
-
-    payload = (
-        data.get(
-            "payload",
-            {},
-        )
-        or {}
-    )
-
-    items = (
-        payload.get(
-            "items",
-            [],
-        )
-        or []
-    )
-
-    paginacion = (
-        payload.get(
-            "paginacion",
-            {},
-        )
-        or {}
-    )
-
-    return items, paginacion, True
-
-
-# ============================================================
-# CONSULTA PAGINADA COMPRA ÁGIL
-# ============================================================
-
-def _consultar_compra_agil_paginas(
-    headers,
-    params_base,
-    etiqueta,
-    max_paginas=None,
-):
-    """
-    Returns:
-        (items, ok)
-        ok=False si alguna página falló contra la API.
-    """
-
-    todos = []
+    resultados = []
 
     numero_pagina = 1
 
-    if max_paginas is None:
-        max_paginas = COMPRA_AGIL_MAX_PAGINAS_RECUPERACION
-
-    ok_general = True
+    max_paginas = 5
 
     while (
         numero_pagina
@@ -2026,37 +2110,86 @@ def _consultar_compra_agil_paginas(
     ):
 
         params = {
-            **params_base,
+            "q": query_api,
+            "estado": "publicada",
+            "tamano_pagina": 50,
             "numero_pagina": numero_pagina,
-            "tamano_pagina": (
-                COMPRA_AGIL_TAMANO_PAGINA
-            ),
         }
 
-        print(
-            f"⏱️ {etiqueta} "
-            f"— página {numero_pagina}..."
-        )
+        try:
 
-        items, paginacion, ok = (
-            _obtener_items_compra_agil(
+            response = _request_compra_agil(
+                ENDPOINT_COMPRA_AGIL,
                 headers,
-                params,
-                timeout=(
-                    COMPRA_AGIL_TIMEOUT_PAGINA
-                ),
+                params=params,
+                timeout=45,
+                max_retries=1,
             )
+
+        except requests.exceptions.RequestException as e:
+
+            print(
+                f"❌ q={termino_original} "
+                f"falló: {e}"
+            )
+
+            return resultados
+
+        if response.status_code != 200:
+
+            print(
+                f"⚠️ q={termino_original} "
+                "respondió HTTP "
+                f"{response.status_code}"
+            )
+
+            return resultados
+
+        try:
+
+            data = response.json()
+
+        except ValueError:
+
+            print(
+                f"⚠️ q={termino_original} "
+                "devolvió JSON inválido."
+            )
+
+            return resultados
+
+        payload = (
+            data.get(
+                "payload",
+                {},
+            )
+            or {}
         )
 
-        if not ok:
-            ok_general = False
-            break
+        items = (
+            payload.get(
+                "items",
+                [],
+            )
+            or []
+        )
 
-        if not items:
-            break
+        paginacion = (
+            payload.get(
+                "paginacion",
+                {},
+            )
+            or {}
+        )
 
-        todos.extend(
+        resultados.extend(
             items
+        )
+
+        print(
+            f"   → página "
+            f"{numero_pagina}: "
+            f"{len(items)} resultado(s)"
         )
 
         total_paginas = int(
@@ -2076,7 +2209,8 @@ def _consultar_compra_agil_paginas(
         )
 
         if (
-            numero_respuesta
+            not items
+            or numero_respuesta
             >= total_paginas
         ):
 
@@ -2085,10 +2219,10 @@ def _consultar_compra_agil_paginas(
         numero_pagina += 1
 
         time.sleep(
-            0.5
+            0.75
         )
 
-    return todos, ok_general
+    return resultados
 
 
 # ============================================================
@@ -2100,24 +2234,24 @@ def _obtener_detalle_compra_agil(
     headers,
 ):
 
-    endpoint = (
-        f"{ENDPOINT_COMPRA_AGIL}/"
-        f"{codigo}"
-    )
-
     try:
 
         response = _request_compra_agil(
-            endpoint,
+            ENDPOINT_COMPRA_AGIL,
             headers,
+            params={
+                "id": codigo,
+            },
             timeout=45,
+            max_retries=1,
         )
 
     except requests.exceptions.RequestException as e:
 
         print(
             f"⚠️ Error obteniendo detalle "
-            f"de Compra Ágil {codigo}: {e}"
+            f"de Compra Ágil "
+            f"{codigo}: {e}"
         )
 
         return {}
@@ -2132,9 +2266,21 @@ def _obtener_detalle_compra_agil(
 
         return {}
 
+    try:
+
+        data = response.json()
+
+    except ValueError:
+
+        print(
+            f"⚠️ Respuesta JSON inválida "
+            f"para Compra Ágil {codigo}."
+        )
+
+        return {}
+
     return (
-        response.json()
-        .get(
+        data.get(
             "payload",
             {},
         )
@@ -2143,66 +2289,33 @@ def _obtener_detalle_compra_agil(
 
 
 # ============================================================
-# MONTO COMPRA ÁGIL
+# FECHA DE CIERRE DESDE EL LISTADO
 # ============================================================
 
-def _extraer_monto_compra_agil(
-    detalle,
+def _fecha_cierre_item_compra_agil(
     item,
 ):
 
-    presupuesto = (
-        detalle.get(
-            "presupuesto",
-            {},
-        )
-        or {}
-    )
-
-    montos = (
+    fechas = (
         item.get(
-            "montos",
+            "fechas",
             {},
         )
         or {}
-    )
-
-    monto = (
-        presupuesto.get(
-            "presupuesto_estimado"
-        )
-        or presupuesto.get(
-            "monto_disponible"
-        )
-        or presupuesto.get(
-            "monto_disponible_clp"
-        )
-        or montos.get(
-            "monto_disponible"
-        )
-        or montos.get(
-            "monto_disponible_clp"
-        )
-    )
-
-    moneda = (
-        presupuesto.get(
-            "moneda"
-        )
-        or montos.get(
-            "moneda"
-        )
-        or "CLP"
     )
 
     return (
-        monto,
-        moneda,
+        fechas.get(
+            "fecha_cierre"
+        )
+        or item.get(
+            "fecha_cierre"
+        )
     )
 
 
 # ============================================================
-# CONSTRUIR COMPRA ÁGIL
+# MAPEAR COMPRA ÁGIL
 # ============================================================
 
 def _mapear_compra_agil(
@@ -2337,11 +2450,48 @@ def _mapear_compra_agil(
         )
     )
 
-    monto, moneda = (
-        _extraer_monto_compra_agil(
-            detalle,
-            item,
+    presupuesto = (
+        detalle.get(
+            "presupuesto",
+            {},
         )
+        or {}
+    )
+
+    montos = (
+        item.get(
+            "montos",
+            {},
+        )
+        or {}
+    )
+
+    monto = (
+        presupuesto.get(
+            "presupuesto_estimado"
+        )
+        or presupuesto.get(
+            "monto_disponible"
+        )
+        or presupuesto.get(
+            "monto_disponible_clp"
+        )
+        or montos.get(
+            "monto_disponible"
+        )
+        or montos.get(
+            "monto_disponible_clp"
+        )
+    )
+
+    moneda = (
+        presupuesto.get(
+            "moneda"
+        )
+        or montos.get(
+            "moneda"
+        )
+        or "CLP"
     )
 
     codigo = (
@@ -2350,6 +2500,15 @@ def _mapear_compra_agil(
         )
         or item.get(
             "codigo"
+        )
+    )
+
+    fecha_cierre = (
+        fechas.get(
+            "fecha_cierre"
+        )
+        or _fecha_cierre_item_compra_agil(
+            item
         )
     )
 
@@ -2410,33 +2569,17 @@ def _mapear_compra_agil(
             or "Sin fecha"
         ),
 
-        "fecha_cierre": (
-            fechas.get(
-                "fecha_cierre"
-            )
-            or (
-                item.get(
-                    "fechas",
-                    {},
-                )
-                or {}
-            ).get(
-                "fecha_cierre"
-            )
-            or item.get(
-                "fecha_cierre"
-            )
-        ),
-
         "fecha_ultimo_cambio": (
             fechas.get(
                 "fecha_ultimo_cambio"
             )
         ),
 
+        "fecha_cierre": fecha_cierre,
+
         "link": (
-            f"{ENDPOINT_COMPRA_AGIL}/"
-            f"{codigo}"
+            f"{ENDPOINT_COMPRA_AGIL}"
+            f"?id={codigo}"
         ),
 
         "link_mercado_publico": (
@@ -2459,13 +2602,7 @@ def _mapear_compra_agil(
         ),
 
         "tipo_presupuesto": (
-            (
-                detalle.get(
-                    "presupuesto",
-                    {},
-                )
-                or {}
-            ).get(
+            presupuesto.get(
                 "tipo_presupuesto"
             )
         ),
@@ -2533,116 +2670,95 @@ def simular_scraping_compra_agil_urgente():
 
     ids_procesados = set()
 
-    api_fallida = False
+    consultas_ok = 0
 
-    try:
+    consultas_error = 0
 
-        # ====================================================
-        # CONSULTA 1
-        # INCREMENTAL
-        # ====================================================
+    (
+        busquedas_originales,
+        busquedas_adicionales,
+    ) = (
+        _obtener_busquedas_compra_agil_induwork()
+    )
 
-        ventana_ms = (
-            2
-            * 60
-            * 60
-            * 1000
-        )
+    # ========================================================
+    # COMBINAR Y DEDUPLICAR CONSULTAS API
+    # ========================================================
 
-        params_incremental = {
-            "ttl_cambio_ms": ventana_ms,
-            "estado": "publicada",
-        }
+    consultas = []
 
-        print(
-            "⏱️ Consultando Compra Ágil "
-            "v2 incremental..."
-        )
+    claves_consulta = set()
 
-        items_incrementales, ok_incremental = (
-            _consultar_compra_agil_paginas(
-                headers,
-                params_incremental,
-                "Compra Ágil incremental",
-                max_paginas=(
-                    COMPRA_AGIL_MAX_PAGINAS_INCREMENTAL
-                ),
-            )
-        )
+    for tipo, lista in (
+        (
+            "ORIGINAL",
+            busquedas_originales,
+        ),
+        (
+            "ADICIONAL",
+            busquedas_adicionales,
+        ),
+    ):
 
-        if not ok_incremental:
-            api_fallida = True
+        for termino in lista:
 
-        # ====================================================
-        # CONSULTA 2
-        # RECUPERACIÓN DE PUBLICADAS RECIENTES
-        # ====================================================
-
-        fecha_desde = (
-            datetime.datetime.now(
-                datetime.timezone.utc
-            )
-            - datetime.timedelta(
-                days=COMPRA_AGIL_DIAS_RECUPERACION
-            )
-        )
-
-        fecha_desde_iso = (
-            fecha_desde.strftime(
-                "%Y-%m-%dT%H:%M:%SZ"
-            )
-        )
-
-        params_recuperacion = {
-            "publicado_desde": (
-                fecha_desde_iso
-            ),
-            "estado": "publicada",
-        }
-
-        print(
-            "🔄 Recuperando Compras Ágiles "
-            f"publicadas durante los "
-            f"últimos "
-            f"{COMPRA_AGIL_DIAS_RECUPERACION} días..."
-        )
-
-        try:
-
-            items_recuperacion, ok_recuperacion = (
-                _consultar_compra_agil_paginas(
-                    headers,
-                    params_recuperacion,
-                    "Compra Ágil recuperación",
-                    max_paginas=(
-                        COMPRA_AGIL_MAX_PAGINAS_RECUPERACION
-                    ),
+            query_api = (
+                _normalizar_query_compra_agil(
+                    termino
                 )
             )
 
-            if not ok_recuperacion:
-                api_fallida = True
+            if not query_api:
+                continue
 
-        except requests.exceptions.RequestException as e:
-
-            print(
-                "⚠️ La consulta de recuperación "
-                f"falló: {e}"
+            clave = (
+                f"{tipo}:{query_api}"
             )
 
-            items_recuperacion = []
-            api_fallida = True
+            if clave in claves_consulta:
+                continue
+
+            claves_consulta.add(
+                clave
+            )
+
+            consultas.append(
+                (
+                    tipo,
+                    termino,
+                    query_api,
+                )
+            )
+
+    # ========================================================
+    # BÚSQUEDAS
+    # ========================================================
+
+    for tipo, termino, query_api in consultas:
+
+        resultados = (
+            _buscar_compra_agil_por_query(
+                termino,
+                tipo,
+                headers,
+            )
+        )
+
+        if resultados:
+
+            consultas_ok += 1
+
+        else:
+
+            # No todo resultado vacío es un error.
+            # Puede simplemente no haber coincidencias.
+            pass
 
         # ====================================================
-        # UNIFICAR
+        # ITEMS ENCONTRADOS
         # ====================================================
 
-        todos_los_items = []
-
-        for item in (
-            items_incrementales
-            + items_recuperacion
-        ):
+        for item in resultados:
 
             codigo = item.get(
                 "codigo"
@@ -2652,37 +2768,76 @@ def simular_scraping_compra_agil_urgente():
                 continue
 
             if codigo in ids_procesados:
+
                 continue
 
             ids_procesados.add(
                 codigo
             )
 
-            todos_los_items.append(
-                item
+            # =================================================
+            # FECHA DE CIERRE DEL LISTADO
+            # =================================================
+
+            fecha_cierre_item = (
+                _fecha_cierre_item_compra_agil(
+                    item
+                )
             )
 
-        print(
-            f"🔎 {len(todos_los_items)} "
-            "Compras Ágiles únicas "
-            "para analizar."
-        )
-
-        # ====================================================
-        # PROCESAMIENTO
-        # ====================================================
-
-        for indice, item in enumerate(
-            todos_los_items,
-            start=1,
-        ):
-
-            codigo = item.get(
-                "codigo"
+            fecha_cierre_item_dt = (
+                _parsear_fecha(
+                    fecha_cierre_item
+                )
             )
 
-            if not codigo:
+            # =================================================
+            # SI YA ESTÁ CERRADA
+            # =================================================
+
+            if (
+                fecha_cierre_item_dt
+                and fecha_cierre_item_dt
+                <= ahora
+            ):
+
                 continue
+
+            # =================================================
+            # SI TENEMOS FECHA Y NO ES URGENTE
+            #
+            # No pedimos detalle.
+            #
+            # Esto reduce muchísimo las consultas.
+            # =================================================
+
+            if fecha_cierre_item_dt:
+
+                horas_restantes = (
+                    (
+                        fecha_cierre_item_dt
+                        - ahora
+                    ).total_seconds()
+                    / 3600
+                )
+
+                if (
+                    horas_restantes
+                    > HORAS_URGENTE_COMPRA_AGIL
+                ):
+
+                    print(
+                        f"⏭️ {codigo} "
+                        f"cierra en "
+                        f"{horas_restantes:.1f}h. "
+                        "Fuera de ventana urgente."
+                    )
+
+                    continue
+
+            # =================================================
+            # DETALLE
+            # =================================================
 
             detalle = (
                 _obtener_detalle_compra_agil(
@@ -2692,6 +2847,7 @@ def simular_scraping_compra_agil_urgente():
             )
 
             if not detalle:
+
                 continue
 
             compra = (
@@ -2735,6 +2891,10 @@ def simular_scraping_compra_agil_urgente():
 
                 continue
 
+            # =================================================
+            # CONTEXTO COMPLETO
+            # =================================================
+
             texto = (
                 f"{compra.get('nombre', '')} "
                 f"{compra.get('descripcion', '')} "
@@ -2742,7 +2902,7 @@ def simular_scraping_compra_agil_urgente():
             )
 
             # =================================================
-            # FILTRO
+            # FILTRO GENERAL
             # =================================================
 
             if not posible_relevante(
@@ -2751,6 +2911,10 @@ def simular_scraping_compra_agil_urgente():
 
                 continue
 
+            # =================================================
+            # CLASIFICACIÓN BASE
+            # =================================================
+
             clasificacion = (
                 evaluar_licitacion(
                     compra
@@ -2758,24 +2922,24 @@ def simular_scraping_compra_agil_urgente():
             )
 
             # =================================================
-            # GEMINI INDUWORK
+            # INDUWORK
             # =================================================
 
             if contiene_keyword_induwork(
                 texto
             ):
 
-                terminos = (
+                terminos_detectados = (
                     keywords_induwork_detectadas(
                         texto
                     )
                 )
 
                 print(
-                    f"🎯 Compra Ágil "
-                    f"{codigo} "
-                    f"coincide con Induwork "
-                    f"| términos: {terminos}"
+                    f"🎯 {codigo} "
+                    "candidato Induwork "
+                    f"| términos: "
+                    f"{terminos_detectados}"
                 )
 
                 print(
@@ -2793,14 +2957,6 @@ def simular_scraping_compra_agil_urgente():
                             f"{compra.get('descripcion', '')} "
                             f"Productos: "
                             f"{compra.get('texto_productos', '')}"
-                        ),
-                        organismo=compra.get(
-                            "organismo",
-                            "",
-                        ),
-                        region=compra.get(
-                            "region",
-                            "",
                         ),
                     )
                 )
@@ -2837,19 +2993,31 @@ def simular_scraping_compra_agil_urgente():
                     }
 
                     print(
-                        "✅ Gemini aprobó "
-                        f"Compra Ágil {codigo}"
+                        "✅ Gemini APROBÓ "
+                        f"{codigo} para "
+                        "Induwork."
+                    )
+
+                    print(
+                        f"   Cierra en: "
+                        f"{horas_restantes:.1f}h"
+                    )
+
+                    print(
+                        "   Monto: "
+                        f"{compra.get('monto_formateado')}"
                     )
 
                 else:
 
                     print(
-                        "⛔ Gemini descartó "
-                        f"Compra Ágil {codigo}"
+                        "⛔ Gemini DESCARTÓ "
+                        f"{codigo} para "
+                        "Induwork."
                     )
 
             # =================================================
-            # NINGUNA CATEGORÍA
+            # OTRAS CATEGORÍAS
             # =================================================
 
             if not (
@@ -2883,10 +3051,6 @@ def simular_scraping_compra_agil_urgente():
             ] = ahora_utc
 
             compra[
-                "fecha_primera_deteccion"
-            ] = ahora_utc
-
-            compra[
                 "ultima_verificacion"
             ] = ahora_utc
 
@@ -2895,10 +3059,14 @@ def simular_scraping_compra_agil_urgente():
             ] = True
 
             # =================================================
-            # DB
+            # BASE DE DATOS
             # =================================================
 
             if db is None:
+
+                compra[
+                    "fecha_primera_deteccion"
+                ] = ahora_utc
 
                 alertas_urgentes.append(
                     compra
@@ -2915,6 +3083,10 @@ def simular_scraping_compra_agil_urgente():
                     }
                 )
             )
+
+            # =================================================
+            # EXISTENTE
+            # =================================================
 
             if existente:
 
@@ -2946,11 +3118,27 @@ def simular_scraping_compra_agil_urgente():
                 except Exception as e:
 
                     print(
-                        f"⚠️ No se pudo actualizar "
-                        f"Compra Ágil {codigo}: {e}"
+                        f"⚠️ No se pudo "
+                        f"actualizar "
+                        f"Compra Ágil "
+                        f"{codigo}: {e}"
                     )
 
+                print(
+                    f"♻️ Compra Ágil "
+                    f"{codigo} ya estaba "
+                    "almacenada."
+                )
+
                 continue
+
+            # =================================================
+            # NUEVA
+            # =================================================
+
+            compra[
+                "fecha_primera_deteccion"
+            ] = ahora_utc
 
             try:
 
@@ -2965,61 +3153,62 @@ def simular_scraping_compra_agil_urgente():
                 )
 
                 print(
-                    f"✨ [Compra Ágil] "
-                    f"{codigo} "
-                    f"cierra en "
-                    f"{horas_restantes:.1f}h "
-                    f"— Guardada."
+                    "✨ [COMPRA ÁGIL NUEVA] "
+                    f"{codigo}"
+                )
+
+                print(
+                    f"   Cierra en: "
+                    f"{horas_restantes:.1f}h"
+                )
+
+                print(
+                    f"   Monto: "
+                    f"{compra.get('monto_formateado')}"
+                )
+
+                print(
+                    f"   Nombre: "
+                    f"{compra.get('nombre')}"
                 )
 
             except Exception as e:
 
                 print(
-                    f"⚠️ No se pudo guardar "
-                    f"{codigo}: {e}"
+                    f"⚠️ No se pudo "
+                    f"guardar {codigo}: {e}"
                 )
 
-    except requests.exceptions.RequestException as e:
+    # ========================================================
+    # RESUMEN
+    # ========================================================
 
-        print(
-            "❌ ERROR API v2 Compra Ágil "
-            f"(fallo de red/HTTP, no 'sin resultados'): {e}"
-        )
+    print(
+        "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    )
 
-        return []
+    print(
+        "📊 FAST CHECK COMPRA ÁGIL"
+    )
 
-    except Exception as e:
+    print(
+        f"🔎 IDs únicos encontrados: "
+        f"{len(ids_procesados)}"
+    )
 
-        print(
-            "❌ Error al procesar "
-            f"Compra Ágil: {e}"
-        )
+    print(
+        f"✅ Consultas con resultados: "
+        f"{consultas_ok}"
+    )
 
-        return []
+    print(
+        f"🚨 Alertas urgentes nuevas: "
+        f"{len(alertas_urgentes)}"
+    )
 
-    if api_fallida:
-
-        print(
-            "❌ API Compra Ágil con fallo(es) HTTP "
-            "en este ciclo — NO se puede afirmar "
-            "que no haya oportunidades urgentes."
-        )
-
-        if alertas_urgentes:
-
-            print(
-                f"⚠️ Aun así se obtuvieron "
-                f"{len(alertas_urgentes)} alertas "
-                "de las consultas que sí respondieron."
-            )
-
-    elif not alertas_urgentes:
-
-        print(
-            "ℹ️ API Compra Ágil respondió OK "
-            "y no hay cierres urgentes relevantes "
-            "en este ciclo."
-        )
+    print(
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    )
 
     return alertas_urgentes
 
